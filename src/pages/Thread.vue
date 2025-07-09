@@ -1,25 +1,47 @@
 <script setup>
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch, defineComponent, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { db } from '@/firebase'
-import { ref as dbRef, onValue, push, serverTimestamp, update } from 'firebase/database'
+import { ref as dbRef, onValue, push, serverTimestamp, update, get } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
-import { decryptText, encryptText } from '@/utils/encryption'
+import { decryptText, encryptText, deterministicEncryptText } from '@/utils/encryption'
 import { sanitizeHTML } from '@/utils/sanitize'
+import RichEditor from '@/components/RichEditor.vue'
+import PostItem from '@/components/PostItem.vue'
+import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFormat'
+import { useI18n } from 'vue-i18n'
+
+const { t: $t, locale } = useI18n()
 
 const route = useRoute()
 const store = useForumStore()
 const threadId = route.params.id
 
 const threadTitle = ref('Loading…')
+const threadData = ref(null)
 const posts = ref([])
 const newReply = ref('')
 const replyingTo = ref(null)
 
+const showNewPostModal = ref(false)
+const hideDeletedPosts = ref(false)
+
+const openNewPostModal = () => {
+  replyingTo.value = null
+  showNewPostModal.value = true
+}
+
+const closeNewPostModal = () => {
+  newReply.value = ''
+  showNewPostModal.value = false
+}
+
+
 const fetchThread = () => {
   onValue(dbRef(db, `threads/${threadId}`), (snapshot) => {
     const thread = snapshot.val()
-    threadTitle.value = thread?.title || 'Untitled'
+    threadData.value = thread
+    threadTitle.value = thread?.title || $t('thread.untitled')
   })
 }
 
@@ -29,23 +51,35 @@ const fetchPosts = () => {
 
     posts.value = Object.entries(all)
       .map(([id, post]) => ({ id, ...post }))
-      .filter((p) => p.threadId === threadId)
+      .filter((p) => String(p.threadId) === String(threadId))
       .sort((a, b) => b.createdAt - a.createdAt)
   })
 }
 
-const reply = async () => {
+const showReplyEditor = (postId) => {
+  replyingTo.value = postId
+  newReply.value = ''
+}
+
+const cancelReply = () => {
+  replyingTo.value = null
+  newReply.value = ''
+}
+
+const reply = async (parentId = null) => {
   if (!newReply.value.trim()) return
 
   const encrypted = encryptText(sanitizeHTML(newReply.value))
+  const encryptedAuthor = encryptText(store.currentUser.email)
 
   await push(dbRef(db, 'posts'), {
     threadId,
-    parentId: replyingTo.value,
+    parentId: parentId ?? null, // ensure null, not undefined
     content: encrypted,
-    author: store.currentUser.email,
+    author: encryptedAuthor,
     createdAt: serverTimestamp(),
     likes: 0,
+    likedBy: [],
     deleted: false
   })
 
@@ -53,33 +87,133 @@ const reply = async () => {
   replyingTo.value = null
 }
 
-const likePost = (postId, currentLikes) => {
-  update(dbRef(db, `posts/${postId}`), {
-    likes: currentLikes + 1
-  })
+const likePost = (postId, currentLikes, likedBy = []) => {
+  const deterministicUserEmail = deterministicEncryptText(store.currentUser.email)
+  const hasLiked = likedBy.includes(deterministicUserEmail)
+  const postRef = dbRef(db, `posts/${postId}`)
+  if (hasLiked) {
+    // Remove like
+    update(postRef, {
+      likes: Math.max(0, currentLikes - 1),
+      likedBy: likedBy.filter(email => email !== deterministicUserEmail)
+    })
+  } else {
+    // Add like
+    update(postRef, {
+      likes: (currentLikes || 0) + 1,
+      likedBy: [...(likedBy || []), deterministicUserEmail]
+    })
+  }
 }
 
-const deletePost = (postId) => {
-  update(dbRef(db, `posts/${postId}`), {
-    content: encryptText('[deleted]'),
-    deleted: true
-  })
+const deletePost = async (postId) => {
+  try {
+    const postRef = dbRef(db, `posts/${postId}`)
+    const snapshot = await get(postRef)
+    const post = snapshot.val()
+    
+    if (post && !post.deleted) {
+      await update(postRef, {
+        originalContent: post.content, // Store original content
+        content: encryptText('[deleted]'),
+        deleted: true
+      })
+    }
+  } catch (error) {
+    console.error('Error deleting post:', error)
+  }
+}
+
+const restorePost = async (postId) => {
+  try {
+    // Get the current post data
+    const postRef = dbRef(db, `posts/${postId}`)
+    const snapshot = await get(postRef)
+    const post = snapshot.val()
+    
+    console.log('Restoring post:', postId, post) // Debug log
+    
+    if (post && post.deleted) {
+      // If we have original content, restore it
+      if (post.originalContent) {
+        console.log('Restoring with original content')
+        await update(postRef, {
+          content: post.originalContent,
+          deleted: false,
+          originalContent: null
+        })
+      } else {
+        // For posts deleted before this feature, check if current content is not the standard deleted message
+        const currentContent = decryptText(post.content)
+        if (currentContent !== '[deleted]') {
+          console.log('Restoring with current content (not standard deleted message)')
+          await update(postRef, {
+            deleted: false
+          })
+        } else {
+          console.log('Setting placeholder content for old deleted post')
+          await update(postRef, {
+            content: encryptText('[Content was deleted]'),
+            deleted: false
+          })
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error restoring post:', error)
+  }
 }
 
 const nestedPosts = computed(() => {
   const map = {}
   posts.value.forEach((p) => {
-    if (!map[p.parentId]) map[p.parentId] = []
-    map[p.parentId].push(p)
+    // treat undefined and null as the same key
+    const key = p.parentId == null ? null : p.parentId
+    if (!map[key]) map[key] = []
+    map[key].push(p)
   })
   return map
 })
 
+// Computed properties for thread header
+const threadAuthor = computed(() => {
+  // If there are posts, use the first post's author
+  if (posts.value.length > 0 && posts.value[0]?.author) {
+    return decryptText(posts.value[0].author)
+  }
+  // Otherwise, use the thread's author
+  if (threadData.value?.author) {
+    return decryptText(threadData.value.author)
+  }
+  return null
+})
+
+const threadAuthorInitial = computed(() => {
+  const author = threadAuthor.value
+  return author ? author.charAt(0).toUpperCase() : '?'
+})
+
+const threadDate = computed(() => {
+  // If there are posts, use the first post's date
+  if (posts.value.length > 0 && posts.value[0]?.createdAt) {
+    return formatDate(posts.value[0].createdAt, locale.value)
+  }
+  // Otherwise, use the thread's date
+  if (threadData.value?.createdAt) {
+    return formatDate(threadData.value.createdAt, locale.value)
+  }
+  return ''
+})
+
 const renderPosts = (parentId = null, depth = 0) => {
-  const list = nestedPosts.value[parentId] || []
-  return list.map((post) => ({
-    ...post,
-    replies: renderPosts(post.id, depth + 1),
+  const list = nestedPosts.value[parentId == null ? null : parentId] || []
+  const filteredList = hideDeletedPosts.value 
+    ? list.filter(p => !p.deleted)
+    : list
+  
+  return filteredList.map((p) => ({
+    ...p,
+    replies: renderPosts(p.id, depth + 1),
     depth
   }))
 }
@@ -88,49 +222,144 @@ onMounted(() => {
   fetchThread()
   fetchPosts()
 })
+
+// Watch for route changes and re-fetch data
+watch(
+  () => route.params.id,
+  (newId, oldId) => {
+    if (newId !== oldId) {
+      fetchThread()
+      fetchPosts()
+    }
+  }
+)
+
+function goToCallback() {
+  if (store.config?.callbackURL) {
+    window.location.href = store.config.callbackURL
+  }
+}
 </script>
 
 <template>
-  <div>
-    <h1 class="text-2xl font-heading mb-4">{{ threadTitle }}</h1>
-
-    <div v-for="post in renderPosts()" :key="post.id" :style="{ marginLeft: `${post.depth * 1.5}rem` }"
-         class="bg-white border rounded p-3 mb-2">
-      <div class="text-sm text-gray-500 mb-1">
-        {{ post.author }} •
-        {{
-          post.createdAt
-            ? new Date(post.createdAt).toLocaleDateString()
-            : 'pending…'
-        }}
+  <div class="min-h-screen bg-[#f4f6f8] font-sans pt-32">
+    <div class="max-w-5xl mx-auto px-4">
+      <!-- Thread Header -->
+      <div class="mb-6 border-b pb-4">
+        <h1 class="text-[1.5rem] font-regular font-overpass text-base-content">
+          {{ threadTitle }}
+        </h1>
+        <div class="text-sm text-base-content/70 mt-1 flex gap-2 items-center">
+          <div class="avatar placeholder w-6 h-6 shrink-0">
+            <div class="bg-neutral-focus text-neutral-content rounded-full w-10">
+              <span class="text-sm font-fraunces font-extrabold">
+                {{ threadAuthorInitial }}
+              </span>
+            </div>
+          </div>
+          <span>{{ threadAuthor || '...' }}</span>
+          <span v-if="threadDate"> • {{ threadDate }}</span>
+        </div>
       </div>
-      <div class="text-gray-800 text-sm" v-html="sanitizeHTML(decryptText(post.content))" />
 
-      <div class="flex gap-4 text-xs mt-2 text-gray-500">
-        <button @click="replyingTo = post.id" class="hover:text-primary">Reply</button>
-        <button @click="likePost(post.id, post.likes)" class="hover:text-primary">👍 {{ post.likes }}</button>
-        <button
-          v-if="store.isAdmin() || post.author === store.currentUser.email"
-          @click="deletePost(post.id)"
-          class="hover:text-red-500"
-        >Delete</button>
+      <!-- Hide Deleted Posts Checkbox -->
+      <div class="mb-4 flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="hideDeletedPosts"
+          v-model="hideDeletedPosts"
+          class="checkbox checkbox-sm"
+        />
+        <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
+          {{ $t('thread.hideDeletedPosts') }}
+        </label>
       </div>
+
+      <!-- Posts List -->
+      <div v-if="renderPosts().length > 0" class="space-y-4">
+        <PostItem
+          v-for="post in renderPosts()"
+          :key="post.id"
+          :post="post"
+          :replyingTo="replyingTo"
+          :newReply="newReply"
+          :depth="post.depth"
+          :renderPosts="renderPosts"
+          :showReplyEditor="showReplyEditor"
+          :likePost="likePost"
+          :deletePost="deletePost"
+          :restorePost="restorePost"
+          :reply="reply"
+          :cancelReply="cancelReply"
+          :store="store"
+          :RichEditor="RichEditor"
+          :sanitizeHTML="sanitizeHTML"
+          :decryptText="decryptText"
+          :encryptText="encryptText"
+          :deterministicEncryptText="deterministicEncryptText"
+          @update:newReply="val => newReply = val"
+        />
+      </div>
+
+      <!-- No Posts Message -->
+      <div v-else class="text-center py-12">
+        <div class="max-w-md mx-auto">
+          <div class="text-6xl mb-4">💬</div>
+          <h3 class="text-xl font-semibold text-base-content mb-2">
+            {{ $t('thread.noPostsYet') }}
+          </h3>
+          <p class="text-base-content/70 mb-6">
+            {{ $t('thread.beFirstToPost') }}
+          </p>
+          <button 
+            class="btn btn-primary btn-lg"
+            @click="openNewPostModal"
+          >
+            {{ $t('thread.createFirstPost') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Top-level reply box -->
+<!-- Floating + Button -->
+<button
+  class="btn btn-primary btn-circle fixed bottom-6 right-6 z-20 shadow-lg text-white text-2xl"
+  @click="openNewPostModal"
+  aria-label="New Post"
+>
+  +
+</button>
+
+<!-- Overlay Modal -->
+<div v-if="showNewPostModal" class="fixed inset-0 bg-black bg-opacity-60 z-30 flex items-center justify-center">
+  <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
+    <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
+    <RichEditor v-model="newReply" :placeholder="$t('thread.writeMessage')" />
+
+    <div class="flex justify-end gap-2 mt-4">
+      <button class="btn btn-outline" @click="closeNewPostModal">
+        {{ $t('thread.cancel') }}
+      </button>
+      <button class="btn btn-primary" @click="() => { reply(null); closeNewPostModal() }">
+        {{ $t('thread.send') }}
+      </button>
     </div>
+  </div>
+</div>
 
-    <div class="mt-6">
-      <h2 class="font-bold mb-2 text-lg">Reply</h2>
-      <textarea
-        v-model="newReply"
-        rows="4"
-        class="textarea textarea-bordered w-full"
-        placeholder="Write your message..."
-      />
-      <div class="mt-2 flex gap-2">
-        <button class="btn btn-primary" @click="reply">Send</button>
-        <button v-if="replyingTo" class="btn btn-outline" @click="replyingTo = null">
-          Cancel reply
-        </button>
-      </div>
+
     </div>
   </div>
 </template>
+
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Overpass:wght@700&family=Source+Sans+Pro:wght@400;600&display=swap');
+
+.font-overpass {
+  font-family: 'Overpass', sans-serif;
+}
+.font-sans {
+  font-family: 'Source Sans Pro', sans-serif;
+}
+</style>

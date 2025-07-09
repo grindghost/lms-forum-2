@@ -1,0 +1,44 @@
+{
+    "header": {
+      "title": "Forum",
+      "language": "Langue"
+    },
+    "home": {
+      "createThread": "Créer une discussion",
+      "threadTitle": "Entrez un titre de discussion...",
+      "forumThreads": "Discussions",
+      "noThreads": "Aucune discussion pour le moment. Soyez le premier à poster!",
+      "messages": "messages",
+      "pending": "En attente...",
+      "edit": "Edit",
+      "cancel": "Annuler",
+      "save": "Confirmer",
+      "delete": "Supprimer",
+      "confirmDeleteTitle" : "Supprimer la discussion",
+      "confirmDeleteMessage" : "Êtes-vous sûr de vouloir supprimer cette discussion ?",
+      "confirmDeleteWarning": "Tous les messages de cette discussion seront également supprimés. Cette action est irréversible."
+    },
+    "thread": {
+      "reply": "Répondre",
+      "send": "Envoyer",
+      "cancel": "Annuler",
+      "delete": "Supprimer",
+      "likes": "j'aime",
+      "deletedContent": "contenu supprimé par l'utilisateur",
+      "writeReply": "Écrivez votre réponse...",
+      "writeMessage": "Écrivez votre message...",
+      "postReply": "Nouveau message",
+      "edit": "Modifier",
+      "save": "Confirmer",
+      "restore": "Restaurer",
+      "hideDeletedPosts": "Masquer les messages supprimés",
+      "noPostsYet": "Aucun message pour le moment",
+      "beFirstToPost": "Soyez le premier à partager vos pensées !",
+      "createFirstPost": "Créer le premier message",
+      "untitled": "Discussion sans titre"
+    },
+    "common": {
+      "by": "par",
+      "loading": "Chargement..."
+    }
+  }

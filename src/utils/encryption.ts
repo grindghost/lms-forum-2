@@ -14,3 +14,13 @@ export function decryptText(cipher: string): string {
     return '[Decryption failed]'
   }
 }
+
+// Deterministic encryption using AES-ECB (not secure for general use, but deterministic)
+export function deterministicEncryptText(text: string): string {
+  const key = CryptoJS.enc.Utf8.parse(SECRET)
+  const encrypted = CryptoJS.AES.encrypt(text, key, {
+    mode: CryptoJS.mode.ECB,
+    padding: CryptoJS.pad.Pkcs7
+  })
+  return encrypted.toString()
+}

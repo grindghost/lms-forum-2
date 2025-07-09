@@ -1,0 +1,44 @@
+{
+    "header": {
+      "title": "Forum",
+      "language": "Language"
+    },
+    "home": {
+      "createThread": "Create Thread",
+      "threadTitle": "Enter a thread title...",
+      "forumThreads": "Forum Threads",
+      "noThreads": "No threads yet. Be the first to post!",
+      "messages": "messages",
+      "pending": "Pending...",
+      "edit": "Edit",
+      "cancel": "Cancel",
+      "save": "Save",
+      "delete": "Delete",
+      "confirmDeleteTitle" : "Delete thread",
+      "confirmDeleteMessage" : "Are you sure you want to delete this thread?",
+      "confirmDeleteWarning": "All posts in this thread will also be deleted. This action cannot be undone."
+    },
+    "thread": {
+      "reply": "Reply",
+      "send": "Send",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "likes": "likes",
+      "deletedContent": "user deleted content",
+      "writeReply": "Write your reply...",
+      "writeMessage": "Write your message...",
+      "postReply": "New post",
+      "edit": "Edit",
+      "save": "Confirm",
+      "restore": "Restore",
+      "hideDeletedPosts": "Hide deleted posts",
+      "noPostsYet": "No posts yet",
+      "beFirstToPost": "Be the first to share your thoughts!",
+      "createFirstPost": "Create first post",
+      "untitled": "Untitled thread"
+    },
+    "common": {
+      "by": "by",
+      "loading": "Loading..."
+    }
+  }
