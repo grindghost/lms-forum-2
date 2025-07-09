@@ -1,0 +1,17 @@
+/threads/
+  - [threadId]: {
+      title: string,
+      createdAt: timestamp,
+      author: string,
+      group: string
+    }
+
+/posts/
+  - [postId]: {
+      threadId: string,
+      parentId: string | null,
+      content: encrypted & sanitized HTML,
+      createdAt: timestamp,
+      author: string,
+      likes: number
+    }
