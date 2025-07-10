@@ -1,7 +1,7 @@
 <template>
   <!-- Outer Wrapper -->
   <div
-    :class="[depth > 0 ? 'pl-4' : '', 'w-full']"
+    :class="[depth > 0 ? 'pl-4' : '', 'w-full', props.class]"
     :id="post.id"
     ref="postRef"
     :data-highlight="isHighlighted"
@@ -203,7 +203,8 @@ const props = defineProps({
   decryptText: Function,
   encryptText: Function,
   deterministicEncryptText: Function,
-  adminDeletePost: Function
+  adminDeletePost: Function,
+  class: String
 })
 
 const emit = defineEmits(['update:newReply'])
