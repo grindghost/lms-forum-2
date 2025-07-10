@@ -1,20 +1,105 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<tinCanManifest xmlns="http://projecttincan.com/tincan.xsd">
-  <activities>
-    <activity id="http://yourdomain.com/xapi-activity">
-      <name>
-        <langstring xml:lang="en-US">LMS User Logger</langstring>
-      </name>
-      <description>
-        <langstring xml:lang="en-US">
-          A tool that logs the xAPI user info from the LMS.
-        </langstring>
-      </description>
-    </activity>
-  </activities>
+<lrs>
+    <endpoint>https://www.brioeducation.ca/xapi/</endpoint>
+    <auth>Basic</auth>
+    <version>1.0.3</version>
+</lrs>
 
-  <launch>
-    <activity id="http://yourdomain.com/xapi-activity" />
-    <launchUrl>index.html</launchUrl>
-  </launch>
-</tinCanManifest>
+<activity>
+    <id>https://www.brioeducation.ca/forum</id>
+    <type>http://adlnet.gov/expapi/activities/forum</type>
+    <name>
+        <en-US>Brio Education Forum</en-US>
+        <fr-CA>Forum Brio Education</fr-CA>
+    </name>
+    <description>
+        <en-US>Interactive discussion forum for Brio Education platform. Users can create threads, post messages, reply to posts, and engage in collaborative learning discussions.</en-US>
+        <fr-CA>Forum de discussion interactif pour la plateforme Brio Education. Les utilisateurs peuvent créer des discussions, publier des messages, répondre aux publications et participer à des discussions d'apprentissage collaboratif.</fr-CA>
+    </description>
+    <moreInfo>https://www.brioeducation.ca/forum</moreInfo>
+    <extensions>
+        <http://brioeducation.ca/extensions/forum-features>
+            <threadCreation>true</threadCreation>
+            <posting>true</posting>
+            <replying>true</replying>
+            <liking>true</liking>
+            <subscription>true</subscription>
+            <moderation>true</moderation>
+            <encryption>true</encryption>
+            <readOnly>true</readOnly>
+        </http://brioeducation.ca/extensions/forum-features>
+    </extensions>
+</activity>
+
+<actor>
+    <objectType>Agent</objectType>
+    <name>Forum User</name>
+    <mbox>mailto:user@brioeducation.ca</mbox>
+</actor>
+
+<verb>
+    <id>http://adlnet.gov/expapi/verbs/participated</id>
+    <display>
+        <en-US>participated</en-US>
+        <fr-CA>a participé</fr-CA>
+    </display>
+</verb>
+
+<object>
+    <objectType>Activity</objectType>
+    <id>https://www.brioeducation.ca/forum/thread</id>
+    <definition>
+        <type>http://adlnet.gov/expapi/activities/forum-thread</type>
+        <name>
+            <en-US>Forum Thread</en-US>
+            <fr-CA>Discussion du forum</fr-CA>
+        </name>
+        <description>
+            <en-US>A discussion thread within the Brio Education forum where users can share ideas, ask questions, and collaborate on learning topics.</en-US>
+            <fr-CA>Une discussion dans le forum Brio Education où les utilisateurs peuvent partager des idées, poser des questions et collaborer sur des sujets d'apprentissage.</fr-CA>
+        </description>
+    </definition>
+</object>
+
+<result>
+    <completion>true</completion>
+    <success>true</success>
+    <score>
+        <scaled>1.0</scaled>
+    </score>
+    <duration>PT30M</duration>
+</result>
+
+<context>
+    <platform>Brio Education Forum Platform</platform>
+    <language>en-US</language>
+    <instructor>
+        <objectType>Agent</objectType>
+        <name>Brio Education System</name>
+        <mbox>mailto:system@brioeducation.ca</mbox>
+    </instructor>
+    <contextActivities>
+        <category>
+            <id>http://adlnet.gov/expapi/activities/forum</id>
+            <definition>
+                <type>http://adlnet.gov/expapi/activities/forum</type>
+                <name>
+                    <en-US>Forum Activity</en-US>
+                    <fr-CA>Activité de forum</fr-CA>
+                </name>
+            </definition>
+        </category>
+        <grouping>
+            <id>https://www.brioeducation.ca/learning-platform</id>
+            <definition>
+                <type>http://adlnet.gov/expapi/activities/learning-platform</type>
+                <name>
+                    <en-US>Brio Education Learning Platform</en-US>
+                    <fr-CA>Plateforme d'apprentissage Brio Education</fr-CA>
+                </name>
+            </definition>
+        </grouping>
+    </contextActivities>
+</context>
+
+<timestamp>2024-01-15T10:30:00Z</timestamp> 
