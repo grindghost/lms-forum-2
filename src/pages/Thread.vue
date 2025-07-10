@@ -54,7 +54,7 @@ const fetchPosts = () => {
     posts.value = Object.entries(all)
       .map(([id, post]) => ({ id, ...post }))
       .filter((p) => String(p.threadId) === String(threadId))
-      .sort((a, b) => b.createdAt - a.createdAt)
+      .sort((a, b) => a.createdAt - b.createdAt)
   })
 }
 

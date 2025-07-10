@@ -43,7 +43,9 @@
       "beFirstToPost": "Soyez le premier à partager vos pensées !",
       "createFirstPost": "Créer le premier message",
       "untitled": "Discussion sans titre",
-      "readOnlyThread": "Ceci est une discussion en lecture seule. Seuls les administrateurs peuvent poster."
+      "readOnlyThread": "Ceci est une discussion en lecture seule. Seuls les administrateurs peuvent poster.",
+      "copyLink": "Copier le lien du post",
+      "linkCopied": "Lien du post copié !"
     },
     "common": {
       "by": "par",

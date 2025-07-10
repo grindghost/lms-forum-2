@@ -1,6 +1,11 @@
 <template>
   <!-- Outer Wrapper -->
-  <div :class="[depth > 0 ? 'pl-4' : '', 'w-full']">
+  <div
+    :class="[depth > 0 ? 'pl-4' : '', 'w-full']"
+    :id="post.id"
+    ref="postRef"
+    :data-highlight="isHighlighted"
+  >
     <div class="flex gap-2 w-full">
       <!-- Avatar -->
       <AvatarInitial :name="decryptUser(post.author).name" class="mt-3" />
@@ -10,7 +15,8 @@
         class="flex-1 border border-base-300 shadow-sm p-4 rounded-lg transition hover:shadow-md relative"
         :class="[
           getNestingBg(depth),
-          post.deleted ? 'opacity-40 italic' : ''
+          post.deleted ? 'opacity-40 italic' : '',
+          isHighlighted ? 'highlighted-post' : ''
         ]"
         @mouseenter.stop="handleMouseEnter"
         @mouseleave.stop="handleMouseLeave"
@@ -27,8 +33,21 @@
             <span v-if="post.replies && post.replies.length > 0" class="flex items-center gap-1">
               • <span title="Replies">💬 {{ post.replies.length }}</span>
             </span>
+            <!-- Copy Link Button -->
+            <button
+              class="btn btn-xs btn-ghost px-2 py-0 text-base-content/60 hover:text-primary"
+              @click.stop="copyPostLink"
+              :title="$t('thread.copyLink')"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 010 5.656m-1.414-1.414a2 2 0 010-2.828m-2.828 2.828a4 4 0 010-5.656m1.414 1.414a2 2 0 010 2.828M15 7h2a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2h2"/></svg>
+            </button>
           </div>
         </div>
+        <!-- Custom Toast -->
+        <CustomToast 
+          :show="showCopiedToast" 
+          :message="$t('thread.linkCopied')" 
+        />
 
         <!-- Content -->
         <div class="text-base-content text-sm min-h-[1.5em] whitespace-pre-line break-words">
@@ -140,17 +159,20 @@
 
 
 <script setup>
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { defineProps, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { formatDate } from '@/utils/dateFormat'
 import { decryptUser } from '@/utils/encryption'
 import { db } from '@/firebase'
 import { ref as dbRef, update, serverTimestamp } from 'firebase/database'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
+import CustomToast from '@/components/CustomToast.vue'
 
 const { t: $t, locale } = useI18n()
+const route = useRoute()
 
 const props = defineProps({
   post: Object,
@@ -194,7 +216,6 @@ const getNestingBg = (depth) => {
   return 'bg-gray-300'
 }
 
-
 const editingPostId = ref(null)
 const editingContent = ref('')
 
@@ -215,6 +236,64 @@ const canReply = computed(() => {
   if (props.threadData?.readOnly) return false
   // Otherwise, anyone can reply
   return true
+})
+
+// --- Copy Link Logic ---
+const showCopiedToast = ref(false)
+function copyPostLink() {
+  const url = `${window.location.origin}/#/thread/${route.params.id}#${props.post.id}`
+  navigator.clipboard.writeText(url)
+  showCopiedToast.value = true
+  setTimeout(() => { showCopiedToast.value = false }, 2000)
+}
+
+// --- Highlight on hash logic ---
+const postRef = ref(null)
+const isHighlighted = ref(false)
+
+function maybeHighlightOnHash() {
+  // Extract the post ID from the URL hash
+  const fullHash = window.location.hash
+  const postIdFromHash = fullHash.split('#').pop() // Get the last part after the last #
+  
+  console.log('Hash check:', {
+    fullHash,
+    postIdFromHash,
+    postId: props.post.id,
+    matches: postIdFromHash === props.post.id
+  })
+  
+  if (postIdFromHash === props.post.id) {
+    console.log('Scrolling to post:', props.post.id)
+    nextTick(() => {
+      postRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      isHighlighted.value = true
+      setTimeout(() => { isHighlighted.value = false }, 2500)
+    })
+  }
+}
+
+// Watch for hash changes in the URL
+watch(() => window.location.hash, (newHash) => {
+  const postIdFromHash = newHash.split('#').pop()
+  if (postIdFromHash === props.post.id) {
+    console.log('Hash changed, scrolling to post:', props.post.id)
+    nextTick(() => {
+      postRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      isHighlighted.value = true
+      setTimeout(() => { isHighlighted.value = false }, 2500)
+    })
+  }
+})
+
+onMounted(() => {
+  // Check for hash on mount (for direct URL access)
+  maybeHighlightOnHash()
+  
+  // Also check after a short delay to handle cases where the component mounts before the hash is processed
+  setTimeout(() => {
+    maybeHighlightOnHash()
+  }, 500)
 })
 
 function handleMouseEnter() {
@@ -322,5 +401,14 @@ onUnmounted(() => {
   pointer-events: auto;
   max-height: 2rem;
   margin-top: 0.75rem;
+}
+.highlighted-post {
+  border-right: 8px solid #ffd600 !important;
+  animation: pulse-highlight 2.5s cubic-bezier(0.4, 0, 0.6, 1);
+}
+@keyframes pulse-highlight {
+  0% { box-shadow: 0 0 0 0 #ffd60066; }
+  50% { box-shadow: 0 0 0 8px #ffd60033; }
+  100% { box-shadow: 0 0 0 0 #ffd60000; }
 }
 </style>

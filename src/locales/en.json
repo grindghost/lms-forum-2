@@ -43,7 +43,9 @@
       "beFirstToPost": "Be the first to share your thoughts!",
       "createFirstPost": "Create first post",
       "untitled": "Untitled thread",
-      "readOnlyThread": "This is a read-only thread. Only administrators can post."
+      "readOnlyThread": "This is a read-only thread. Only administrators can post.",
+      "copyLink": "Copy post link",
+      "linkCopied": "Post link copied!"
     },
     "common": {
       "by": "by",

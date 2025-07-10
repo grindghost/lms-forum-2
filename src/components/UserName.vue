@@ -1,7 +1,7 @@
 <template>
   <a
     :href="mailtoLink"
-    class="text-base-content font-bold hover:underline hover:text-blue-700 cursor-pointer transition"
+    class="text-base-content/70 font-bold hover:underline hover:text-blue-700 cursor-pointer transition"
     @click.stop
   >
     {{ name }}
