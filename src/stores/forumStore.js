@@ -31,7 +31,7 @@ export const useForumStore = defineStore('forum', () => {
 
   const initFromLMS = async () => {
     const fallbackUser = {
-      email: 'guest@example.com',
+      email: 'admin@example.com',
       name: 'Guest User'
     }
     const fallbackGroupId = 'default-group'

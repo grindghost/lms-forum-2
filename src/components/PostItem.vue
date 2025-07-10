@@ -49,6 +49,12 @@
           :message="$t('thread.linkCopied')" 
         />
 
+        <!-- Deleted Post Toast -->
+        <ErrorToast 
+          :show="showDeletedPostToast" 
+          :message="$t('thread.postDeleted')" 
+        />
+
         <!-- Content -->
         <div class="text-base-content text-sm min-h-[1.5em] whitespace-pre-line break-words">
           <span v-if="post.deleted" class="font-bold text-base-content/80">
@@ -110,6 +116,21 @@
             @click="restorePost(post.id)"
           >
             {{ $t('thread.restore') }}
+          </button>
+          <!-- Admin controls for deleted posts -->
+          <button
+            v-if="store.isAdmin() && decryptUser(post.author).email !== store.currentUser.email"
+            class="btn btn-xs btn-outline btn-success"
+            @click="restorePost(post.id)"
+          >
+            {{ $t('thread.restore') }}
+          </button>
+          <button
+            v-if="store.isAdmin()"
+            class="btn btn-xs btn-outline btn-error"
+            @click="confirmDeletePost(post.id)"
+          >
+            {{ $t('thread.deletePermanently') }}
           </button>
         </div>
 
@@ -180,6 +201,7 @@ import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import CustomToast from '@/components/CustomToast.vue'
 import DeletePostModal from '@/components/DeletePostModal.vue'
+import ErrorToast from '@/components/ErrorToast.vue'
 
 const { t: $t, locale } = useI18n()
 const route = useRoute()
@@ -286,6 +308,7 @@ function executeDeletePost() {
 // --- Highlight on hash logic ---
 const postRef = ref(null)
 const isHighlighted = ref(false)
+const showDeletedPostToast = ref(false)
 
 function maybeHighlightOnHash() {
   // Extract the post ID from the URL hash
@@ -300,6 +323,14 @@ function maybeHighlightOnHash() {
   })
   
   if (postIdFromHash === props.post.id) {
+    // Check if the post is deleted
+    if (props.post.deleted) {
+      console.log('Post is deleted, showing toast')
+      showDeletedPostToast.value = true
+      setTimeout(() => { showDeletedPostToast.value = false }, 3000)
+      return
+    }
+    
     console.log('Scrolling to post:', props.post.id)
     nextTick(() => {
       postRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -313,6 +344,14 @@ function maybeHighlightOnHash() {
 watch(() => window.location.hash, (newHash) => {
   const postIdFromHash = newHash.split('#').pop()
   if (postIdFromHash === props.post.id) {
+    // Check if the post is deleted
+    if (props.post.deleted) {
+      console.log('Post is deleted, showing toast')
+      showDeletedPostToast.value = true
+      setTimeout(() => { showDeletedPostToast.value = false }, 3000)
+      return
+    }
+    
     console.log('Hash changed, scrolling to post:', props.post.id)
     nextTick(() => {
       postRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })

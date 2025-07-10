@@ -48,7 +48,9 @@
       "linkCopied": "Lien du post copié !",
       "confirmDeletePostTitle": "Supprimer le message définitivement",
       "confirmDeletePostMessage": "Êtes-vous sûr de vouloir supprimer définitivement ce message ?",
-      "confirmDeletePostWarning": "Cette action supprimera définitivement le message et toutes ses réponses de la base de données. Cette action est irréversible."
+      "confirmDeletePostWarning": "Cette action supprimera définitivement le message et toutes ses réponses de la base de données. Cette action est irréversible.",
+      "postDeleted": "Ce message a été supprimé et n'est plus disponible.",
+      "deletePermanently": "Supprimer définitivement"
     },
     "common": {
       "by": "par",

@@ -48,7 +48,9 @@
       "linkCopied": "Post link copied!",
       "confirmDeletePostTitle": "Delete post permanently",
       "confirmDeletePostMessage": "Are you sure you want to permanently delete this post?",
-      "confirmDeletePostWarning": "This action will permanently remove the post and all its replies from the database. This action cannot be undone."
+      "confirmDeletePostWarning": "This action will permanently remove the post and all its replies from the database. This action cannot be undone.",
+      "postDeleted": "This post has been deleted and is no longer available.",
+      "deletePermanently": "Delete permanently"
     },
     "common": {
       "by": "by",

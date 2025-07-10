@@ -13,6 +13,7 @@ import { useI18n } from 'vue-i18n'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import NewPostModal from '@/components/NewPostModal.vue'
+import ErrorToast from '@/components/ErrorToast.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -29,6 +30,9 @@ const replyingTo = ref(null)
 const showNewPostModal = ref(false)
 const hideDeletedPosts = ref(false)
 
+// Deleted post detection state
+const showDeletedPostToast = ref(false)
+
 const openNewPostModal = () => {
   replyingTo.value = null
   showNewPostModal.value = true
@@ -37,6 +41,15 @@ const openNewPostModal = () => {
 const closeNewPostModal = () => {
   newReply.value = ''
   showNewPostModal.value = false
+}
+
+// Function to check if a post exists and show toast if it doesn't
+const checkPostExists = (postId) => {
+  const postExists = posts.value.some(post => post.id === postId)
+  if (!postExists) {
+    showDeletedPostToast.value = true
+    setTimeout(() => { showDeletedPostToast.value = false }, 3000)
+  }
 }
 
 
@@ -289,6 +302,21 @@ watch(
   }
 )
 
+// Watch for hash changes to detect deleted posts
+watch(
+  () => route.hash,
+  (newHash) => {
+    if (newHash) {
+      const postId = newHash.split('#').pop()
+      // Check after a short delay to ensure posts are loaded
+      setTimeout(() => {
+        checkPostExists(postId)
+      }, 500)
+    }
+  },
+  { immediate: true }
+)
+
 function goToCallback() {
   if (store.config?.callbackURL) {
     window.location.href = store.config.callbackURL
@@ -408,6 +436,11 @@ const threadAuthorEmail = computed(() => {
         @update:content="val => newReply = val"
       />
 
+      <!-- Deleted Post Toast -->
+      <ErrorToast 
+        :show="showDeletedPostToast" 
+        :message="$t('thread.postDeleted')" 
+      />
 
     </div>
   </div>
