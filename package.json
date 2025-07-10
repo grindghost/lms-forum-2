@@ -20,10 +20,11 @@
     "firebase": "^11.10.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.17",
-    "vue-i18n": "^12.0.0-alpha.3",
+    "vue-i18n": "^11.1.9",
     "vue-router": "^4.5.1"
   },
   "devDependencies": {
+    "@intlify/unplugin-vue-i18n": "^6.0.8",
     "@vitejs/plugin-vue": "^6.0.0",
     "autoprefixer": "^10.4.21",
     "daisyui": "^3.2.1",

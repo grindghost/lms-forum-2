@@ -17,7 +17,12 @@ export const useForumStore = defineStore('forum', () => {
 
   const loadConfig = async () => {
     try {
-      const res = await fetch('/forum.config.json')
+      
+      const baseUrl = new URL('.', window.location.href).toString()
+      const configUrl = baseUrl + 'forum.config.json'
+      console.log('Loading config from:', configUrl)
+
+      const res = await fetch(configUrl)
       config.value = await res.json()
     } catch (error) {
       console.error('Failed to load config:', error)

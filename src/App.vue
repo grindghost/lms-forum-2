@@ -4,7 +4,7 @@
       <div class="flex items-center gap-4">
         <!-- Logo -->
         <img
-          src="/header-logo.svg"
+          src="@/assets/header-logo.svg"
           alt="Forum Logo"
           class="w-[6rem] cursor-pointer"
           @click="goToCallback"
@@ -60,6 +60,11 @@ const currentLocale = computed(() => locale.value)
 onMounted(async () => {
   await store.loadConfig()
   await store.initFromLMS()
+
+  if (router.currentRoute.value.fullPath === '/index.html') {
+    router.replace('/') // or whatever your homepage route is
+  }
+
 })
 
 async function goToCallback() {

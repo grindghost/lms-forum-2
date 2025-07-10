@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tinCanManifest xmlns="http://projecttincan.com/tincan.xsd">
+  <activities>
+    <activity id="http://yourdomain.com/xapi-activity">
+      <name>
+        <langstring xml:lang="en-US">LMS User Logger</langstring>
+      </name>
+      <description>
+        <langstring xml:lang="en-US">
+          A tool that logs the xAPI user info from the LMS.
+        </langstring>
+      </description>
+    </activity>
+  </activities>
+
+  <launch>
+    <activity id="http://yourdomain.com/xapi-activity" />
+    <launchUrl>index.html</launchUrl>
+  </launch>
+</tinCanManifest>
