@@ -20,7 +20,10 @@
       "confirmDeleteWarning": "All posts in this thread will also be deleted. This action cannot be undone.",
       "readOnly": "Read-only",
       "dragToReorder": "Drag to reorder",
-      "group": "Group"
+      "group": "Group",
+      "subscribe": "Subscribe",
+      "unsubscribe": "Unsubscribe",
+      "lastPostBy": "Last post by"
     },
     "thread": {
       "reply": "Reply",

@@ -1,15 +1,9 @@
 <template>
   <!-- Outer Wrapper -->
   <div :class="[depth > 0 ? 'pl-4' : '', 'w-full']">
-    <div class="flex gap-3 w-full">
+    <div class="flex gap-2 w-full">
       <!-- Avatar -->
-      <div class="avatar placeholder w-6 h-6 shrink-0">
-        <div class="bg-neutral-focus text-neutral-content rounded-full w-10">
-          <span class="text-sm font-fraunces font-extrabold">
-            {{ getInitials(decryptUser(post.author).name) }}
-          </span>
-        </div>
-      </div>
+      <AvatarInitial :name="decryptUser(post.author).name" class="mt-3" />
 
       <!-- Post Body -->
       <div
@@ -23,13 +17,17 @@
         @mousemove.stop="handleMouseMove"
       >
         <!-- Meta Info -->
-        <div class="text-sm text-base-content/60 mb-1 flex justify-between">
-          <span>
-            {{ decryptUser(post.author).name }}
-          </span>
-          <span>
-            {{ formattedDate }}
-          </span>
+        <div class="text-sm text-base-content/60 mb-1 flex justify-between items-center gap-2">
+          <UserName :name="decryptUser(post.author).name" :email="decryptUser(post.author).email" />
+          <div class="flex items-center gap-2">
+            <span>{{ formattedDate }}</span>
+            <span v-if="post.likes > 0" class="flex items-center gap-1">
+              • <span title="Likes">👍 {{ post.likes }}</span>
+            </span>
+            <span v-if="post.replies && post.replies.length > 0" class="flex items-center gap-1">
+              • <span title="Replies">💬 {{ post.replies.length }}</span>
+            </span>
+          </div>
         </div>
 
         <!-- Content -->
@@ -45,12 +43,16 @@
                 <button class="btn btn-sm btn-outline" @click="cancelEdit">{{ $t('thread.cancel') }}</button>
               </div>
             </div>
-            <span v-else v-html="sanitizeHTML(decryptText(post.content))" />
+            <div v-else class="prose prose-sm max-w-none" v-html="sanitizeHTML(decryptText(post.content))"></div>
           </template>
         </div>
 
         <!-- Actions -->
-        <div v-if="!post.deleted && editingPostId !== post.id" class="post-actions flex flex-wrap gap-2 text-xs mt-3" :class="{ 'show-actions': isHovered }">
+        <div
+          v-if="!post.deleted && editingPostId !== post.id"
+          class="post-actions flex flex-wrap gap-2 text-xs mt-3"
+          :class="{ 'show-actions': isHovered || replyingTo === post.id }"
+        >
           <button v-if="canReply" class="btn btn-xs btn-outline btn-primary" @click="showReplyEditor(post.id)">
             {{ $t('thread.reply') }}
           </button>
@@ -78,7 +80,11 @@
         </div>
         
         <!-- Actions for Deleted Posts -->
-        <div v-if="post.deleted && editingPostId !== post.id" class="post-actions flex flex-wrap gap-2 text-xs mt-3" :class="{ 'show-actions': isHovered }">
+        <div
+          v-if="post.deleted && editingPostId !== post.id"
+          class="post-actions flex flex-wrap gap-2 text-xs mt-3"
+          :class="{ 'show-actions': isHovered || replyingTo === post.id }"
+        >
           <button
             v-if="decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-success"
@@ -141,6 +147,8 @@ import { formatDate } from '@/utils/dateFormat'
 import { decryptUser } from '@/utils/encryption'
 import { db } from '@/firebase'
 import { ref as dbRef, update, serverTimestamp } from 'firebase/database'
+import AvatarInitial from '@/components/AvatarInitial.vue'
+import UserName from '@/components/UserName.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -254,76 +262,51 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Style lists in displayed content - more specific to override Tailwind */
-div.text-base-content ul,
-div.text-base-content span ul,
-div.text-base-content ol,
-div.text-base-content span ol {
-  list-style: revert !important;
-  padding-left: 1.5em !important;
-  margin: 0.5em 0 !important;
+@import url('https://fonts.googleapis.com/css2?family=Overpass:wght@700&family=Source+Sans+Pro:wght@400;600&display=swap');
+
+.font-overpass {
+  font-family: 'Overpass', sans-serif;
+}
+.font-sans {
+  font-family: 'Source Sans Pro', sans-serif;
+}
+</style>
+
+<style>
+/* Custom styles for post content headings and code blocks (global) */
+.prose h1 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-top: 0.8em;
+  margin-bottom: 0.5em;
+  color: #1a202c;
+}
+.prose h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+  color: #1a202c;
+}
+.prose pre {
+  background: #f4f6f8;
+  border: 1px solid #dddddd;
+  color: #222;
+  border-radius: 0.375rem;
+  padding: 1em;
+  font-size: 0.95em;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.prose code {
+  background: #f6f8f9;
+  color: #000;
+  border-radius: 0.25rem;
+  padding: 0.15em 0.4em;
+  font-size: 0.95em;
 }
 
-div.text-base-content ul,
-div.text-base-content span ul {
-  list-style-type: disc !important;
-}
-
-div.text-base-content ol,
-div.text-base-content span ol {
-  list-style-type: decimal !important;
-}
-
-div.text-base-content li,
-div.text-base-content span li {
-  margin: 0.25em 0 !important;
-}
-
-/* Style other rich text elements */
-.text-base-content strong,
-.text-base-content span strong {
-  font-weight: bold;
-}
-
-.text-base-content em,
-.text-base-content span em {
-  font-style: italic;
-}
-
-.text-base-content u,
-.text-base-content span u {
-  text-decoration: underline;
-}
-
-.text-base-content a,
-.text-base-content span a {
-  color: #2563eb;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.text-base-content a:hover,
-.text-base-content span a:hover {
-  color: #1d4ed8;
-}
-
-/* Text alignment */
-.text-base-content p[style*="text-align: center"],
-.text-base-content span p[style*="text-align: center"] {
-  text-align: center;
-}
-
-.text-base-content p[style*="text-align: right"],
-.text-base-content span p[style*="text-align: right"] {
-  text-align: right;
-}
-
-.text-base-content p[style*="text-align: left"],
-.text-base-content span p[style*="text-align: left"] {
-  text-align: left;
-}
-
-/* Post actions hover functionality */
+/* Restore post action button hiding logic */
 .post-actions {
   opacity: 0;
   transform: translateY(-5px);
@@ -333,18 +316,7 @@ div.text-base-content span li {
   overflow: hidden;
   margin-top: 0;
 }
-
 .post-actions.show-actions {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-  max-height: 2rem;
-  margin-top: 0.75rem;
-}
-
-/* Always show actions when editing or replying */
-.post-actions.show-actions,
-.post-actions:has(+ div:has(.RichEditor)) {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;

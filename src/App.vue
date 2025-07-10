@@ -1,8 +1,8 @@
 <template>
-  <div>
+  <div class="min-h-screen flex flex-col">
     <Header />
     <!-- Main content with top padding to avoid header overlap -->
-    <div>
+    <div class="flex-1 flex flex-col">
       <router-view />
     </div>
     <Footer />

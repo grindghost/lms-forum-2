@@ -10,6 +10,8 @@ import RichEditor from '@/components/RichEditor.vue'
 import PostItem from '@/components/PostItem.vue'
 import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFormat'
 import { useI18n } from 'vue-i18n'
+import AvatarInitial from '@/components/AvatarInitial.vue'
+import UserName from '@/components/UserName.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -249,10 +251,21 @@ function goToCallback() {
     window.location.href = store.config.callbackURL
   }
 }
+
+// Add a computed for threadAuthorEmail
+const threadAuthorEmail = computed(() => {
+  if (posts.value.length > 0 && posts.value[0]?.author) {
+    return decryptUser(posts.value[0].author).email
+  }
+  if (threadData.value?.author) {
+    return decryptUser(threadData.value.author).email
+  }
+  return ''
+})
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#f4f6f8] font-sans pt-32">
+  <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16">
     <div class="max-w-5xl mx-auto px-4">
       <!-- Thread Header -->
       <div class="mb-6 border-b pb-4">
@@ -260,30 +273,35 @@ function goToCallback() {
           {{ threadTitle }}
         </h1>
         <div class="text-sm text-base-content/70 mt-1 flex gap-2 items-center">
-          <div class="avatar placeholder w-6 h-6 shrink-0">
-            <div class="bg-neutral-focus text-neutral-content rounded-full w-10">
-              <span class="text-sm font-fraunces font-extrabold">
-                {{ threadAuthorInitial }}
-              </span>
-            </div>
-          </div>
-          <span>{{ threadAuthor || '...' }}</span>
+          <AvatarInitial :name="threadAuthor || '?'" />
+          <UserName :name="threadAuthor || '?'" :email="threadAuthorEmail || ''" />
           <span v-if="threadDate">•</span>
           <span v-if="threadDate"> {{ threadDate }}</span>
         </div>
       </div>
 
-      <!-- Hide Deleted Posts Checkbox -->
-      <div class="mb-4 flex items-center gap-2">
-        <input
-          type="checkbox"
-          id="hideDeletedPosts"
-          v-model="hideDeletedPosts"
-          class="checkbox checkbox-sm"
-        />
-        <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
-          {{ $t('thread.hideDeletedPosts') }}
-        </label>
+      <!-- Hide Deleted Posts Checkbox and Add Post Button Row -->
+      <div class="mb-4 flex items-center gap-2 justify-between">
+        <div class="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="hideDeletedPosts"
+            v-model="hideDeletedPosts"
+            class="checkbox checkbox-sm"
+          />
+          <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
+            {{ $t('thread.hideDeletedPosts') }}
+          </label>
+        </div>
+        <div v-if="canPost" class="flex items-center">
+          <button
+            class="bg-blue-600 text-white rounded-full shadow-lg w-10 h-10 flex items-center justify-center text-3xl hover:bg-blue-700 transition"
+            @click="openNewPostModal"
+            aria-label="Add new post"
+          >
+            +
+          </button>
+        </div>
       </div>
 
       <!-- Posts List -->
@@ -336,33 +354,22 @@ function goToCallback() {
         </div>
       </div>
 
-      <!-- Top-level reply box -->
-<!-- Floating + Button -->
-<button
-  v-if="canPost"
-  class="btn btn-primary btn-circle fixed bottom-6 right-6 z-20 shadow-lg text-white text-2xl"
-  @click="openNewPostModal"
-  aria-label="New Post"
->
-  +
-</button>
+      <!-- Overlay Modal -->
+      <div v-if="showNewPostModal" class="fixed inset-0 bg-black bg-opacity-60 z-30 flex items-center justify-center">
+        <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
+          <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
+          <RichEditor v-model="newReply" :placeholder="$t('thread.writeMessage')" />
 
-<!-- Overlay Modal -->
-<div v-if="showNewPostModal" class="fixed inset-0 bg-black bg-opacity-60 z-30 flex items-center justify-center">
-  <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
-    <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
-    <RichEditor v-model="newReply" :placeholder="$t('thread.writeMessage')" />
-
-    <div class="flex justify-end gap-2 mt-4">
-      <button class="btn btn-outline" @click="closeNewPostModal">
-        {{ $t('thread.cancel') }}
-      </button>
-      <button class="btn btn-primary" @click="() => { reply(null); closeNewPostModal() }">
-        {{ $t('thread.send') }}
-      </button>
-    </div>
-  </div>
-</div>
+          <div class="flex justify-end gap-2 mt-4">
+            <button class="btn btn-outline" @click="closeNewPostModal">
+              {{ $t('thread.cancel') }}
+            </button>
+            <button class="btn btn-primary" @click="() => { reply(null); closeNewPostModal() }">
+              {{ $t('thread.send') }}
+            </button>
+          </div>
+        </div>
+      </div>
 
 
     </div>

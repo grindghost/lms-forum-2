@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { db } from '@/firebase'
 import { push, ref as dbRef, serverTimestamp, onValue, update, remove, get } from 'firebase/database'
@@ -7,6 +7,8 @@ import { useForumStore } from '@/stores/forumStore'
 import { encryptText, decryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFormat'
 import { useI18n } from 'vue-i18n'
+import AvatarInitial from '@/components/AvatarInitial.vue'
+import UserName from '@/components/UserName.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -34,6 +36,42 @@ const draggedThread = ref(null)
 const draggedOverThread = ref(null)
 const isDragging = ref(false)
 const dropPosition = ref(null) // 'above' or 'below'
+
+// Track posts for last poster info
+const posts = ref({})
+
+onValue(dbRef(db, 'posts'), (snapshot) => {
+  posts.value = snapshot.val() || {}
+})
+
+// Helper to get last post info for a thread
+function getLastPostInfo(threadId) {
+  const threadPosts = Object.values(posts.value).filter(p => p.threadId === threadId && !p.deleted)
+  if (threadPosts.length === 0) return null
+  const last = threadPosts.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
+  return {
+    name: decryptUser(last.author).name,
+    email: decryptUser(last.author).email,
+    date: last.createdAt
+  }
+}
+
+// Subscribe logic
+function isSubscribed(thread) {
+  if (!thread.subscribers) return false
+  return thread.subscribers.includes(store.currentUser.email)
+}
+async function toggleSubscribe(thread) {
+  const threadRef = dbRef(db, `threads/${thread.id}`)
+  const subscribers = Array.isArray(thread.subscribers) ? [...thread.subscribers] : []
+  const idx = subscribers.indexOf(store.currentUser.email)
+  if (idx === -1) {
+    subscribers.push(store.currentUser.email)
+  } else {
+    subscribers.splice(idx, 1)
+  }
+  await update(threadRef, { subscribers })
+}
 
 // Load config
 onMounted(() => {
@@ -335,7 +373,7 @@ watch(
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#f4f6f8] font-sans pt-24">
+  <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1">
     <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">
         <input
@@ -444,25 +482,35 @@ watch(
                   🗑️
                 </button>
               </div>
+              <!-- Subscribe Checkbox -->
+              <div class="flex items-center gap-2" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="isSubscribed(thread)"
+                  @change="toggleSubscribe(thread)"
+                  class="checkbox checkbox-xs"
+                  :id="'subscribe-' + thread.id"
+                />
+                <label :for="'subscribe-' + thread.id" class="text-xs cursor-pointer">
+                  {{ isSubscribed(thread) ? $t('home.unsubscribe') : $t('home.subscribe') }}
+                </label>
+              </div>
             </div>
 
             <div class="flex items-center text-sm text-gray-500 gap-3 mt-1">
-              <div class="avatar placeholder">
-                <div class="bg-neutral-focus text-neutral-content rounded-full w-6 h-6">
-                  <span class="text-xs font-fraunces font-extrabold">
-                    {{ decryptUser(thread.author).name.charAt(0).toUpperCase() }}
-                  </span>
-                </div>
-              </div>
-
-              <span class="truncate max-w-[160px]">
-                {{ decryptUser(thread.author).name }}
-              </span>
-
+              <AvatarInitial :name="decryptUser(thread.author).name" />
+              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" />
               <span>•</span>
               <span>
                 {{ formatThreadDate(thread.createdAt) }}
               </span>
+            </div>
+            <!-- Last post info -->
+            <div v-if="getLastPostInfo(thread.id)" class="flex items-center text-xs text-gray-400 gap-2 mt-1">
+              <span>{{ $t('home.lastPostBy') }}</span>
+              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" />
+              <span>•</span>
+              <span>{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
             </div>
           </div>
         </div>

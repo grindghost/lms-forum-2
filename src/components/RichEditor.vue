@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { Editor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
@@ -18,13 +18,20 @@ import OlIcon from '@/assets/rte-controls/ul.svg'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  placeholder: { type: String, default: 'Write something...' }
+  placeholder: { type: String, default: 'Write something...' },
+  charLimit: { type: Number, default: 500 }
 })
 const emit = defineEmits(['update:modelValue'])
 
 const editor = ref(null)
 const linkUrl = ref('')
 const showLinkInput = ref(false)
+
+// Character count logic
+const plainText = ref('')
+const charCount = computed(() => plainText.value.length)
+const charLimit = computed(() => props.charLimit)
+const isOverLimit = computed(() => charCount.value > charLimit.value)
 
 onMounted(() => {
   editor.value = new Editor({
@@ -39,6 +46,10 @@ onMounted(() => {
           keepMarks: true,
           keepAttributes: false,
         },
+        codeBlock: true,
+        heading: {
+          levels: [1, 2]
+        }
       }),
       Underline,
       Link.configure({
@@ -57,14 +68,28 @@ onMounted(() => {
       }
     },
     onUpdate({ editor }) {
-      emit('update:modelValue', editor.getHTML())
+      // Get plain text for char count
+      plainText.value = editor.getText()
+      // Prevent input if over limit
+      if (plainText.value.length > charLimit.value) {
+        // Remove extra characters
+        const truncated = plainText.value.slice(0, charLimit.value)
+        editor.commands.setText(truncated)
+        plainText.value = truncated
+        emit('update:modelValue', editor.getHTML())
+      } else {
+        emit('update:modelValue', editor.getHTML())
+      }
     }
   })
+  // Initialize char count
+  plainText.value = editor.value.getText()
 })
 
 watch(() => props.modelValue, (val) => {
   if (editor.value && val !== editor.value.getHTML()) {
     editor.value.commands.setContent(val)
+    plainText.value = editor.value.getText()
   }
 })
 
@@ -77,11 +102,9 @@ const toggleBold = () => editor.value.chain().focus().toggleBold().run()
 const toggleItalic = () => editor.value.chain().focus().toggleItalic().run()
 const toggleUnderline = () => editor.value.chain().focus().toggleUnderline().run()
 const toggleBulletList = () => {
-  console.log('Toggling bullet list')
   editor.value.chain().focus().toggleBulletList().run()
 }
 const toggleOrderedList = () => {
-  console.log('Toggling ordered list')
   editor.value.chain().focus().toggleOrderedList().run()
 }
 const setTextAlign = (align) => editor.value.chain().focus().setTextAlign(align).run()
@@ -101,12 +124,40 @@ const removeLink = () => {
 const isActive = (type, options = {}) => {
   return editor.value?.isActive(type, options) || false
 }
+
+// New: Heading and Code Block controls
+const setHeading = (level) => editor.value.chain().focus().toggleHeading({ level }).run()
+const toggleCodeBlock = () => editor.value.chain().focus().toggleCodeBlock().run()
 </script>
 
 <template>
   <div class="rich-editor-container border rounded-lg overflow-hidden">
     <!-- Toolbar -->
     <div class="bg-gray-50 border-b px-3 py-2 flex flex-wrap items-center gap-1">
+      <!-- Headings and Code Block -->
+      <div class="flex items-center gap-1 border-r pr-2 mr-2">
+        <button
+          @click="setHeading(1)"
+          :class="['toolbar-btn', isActive('heading', { level: 1 }) ? 'toolbar-btn-active' : '']"
+          title="Heading 1"
+        >
+          H1
+        </button>
+        <button
+          @click="setHeading(2)"
+          :class="['toolbar-btn', isActive('heading', { level: 2 }) ? 'toolbar-btn-active' : '']"
+          title="Heading 2"
+        >
+          H2
+        </button>
+        <button
+          @click="toggleCodeBlock"
+          :class="['toolbar-btn', isActive('codeBlock') ? 'toolbar-btn-active' : '']"
+          title="Code Block"
+        >
+          <span class="font-mono text-base">&lt;&gt;</span>
+        </button>
+      </div>
       <!-- Text Formatting -->
       <div class="flex items-center gap-1 border-r pr-2 mr-2">
         <button
@@ -212,6 +263,12 @@ const isActive = (type, options = {}) => {
 
     <!-- Editor Content -->
     <EditorContent :editor="editor" />
+    <!-- Character Count -->
+    <div class="flex justify-end px-3 pb-2 text-xs select-none">
+      <span :class="isOverLimit ? 'text-red-600 font-bold' : 'text-gray-400'">
+        {{ charCount }} / {{ charLimit }}
+      </span>
+    </div>
   </div>
 </template>
 

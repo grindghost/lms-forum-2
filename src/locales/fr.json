@@ -20,7 +20,10 @@
       "confirmDeleteWarning": "Tous les messages de cette discussion seront également supprimés. Cette action est irréversible.",
       "readOnly": "Lecture seule",
       "dragToReorder": "Glisser pour réorganiser",
-      "group": "Groupe"
+      "group": "Groupe",
+      "subscribe": "S'abonner",
+      "unsubscribe": "Se désabonner",
+      "lastPostBy": "Dernier message par"
     },
     "thread": {
       "reply": "Répondre",
