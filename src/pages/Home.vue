@@ -374,7 +374,7 @@ watch(
 </script>
 
 <template>
-  <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1">
+  <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
     <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">
         <input
@@ -405,7 +405,7 @@ watch(
         <div
           v-for="thread in threads"
           :key="thread.id"
-          class="rounded-lg bg-base-100 shadow hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer"
+          class="rounded-lg bg-base-100 shadow hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer relative"
           :class="{
             'opacity-50': isDragging && draggedThread?.id === thread.id,
             'border-dashed border-primary bg-primary/5': draggedOverThread?.id === thread.id,
@@ -420,7 +420,14 @@ watch(
           @dragend="handleDragEnd"
           @click="goToThread(thread.id)"
         >
-          <div class="card-body">
+          <!-- Subscribe Star -->
+          <div v-if="isSubscribed(thread)" class="absolute top-2 right-2 z-10">
+            <div class="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
+              <span class="text-yellow-600 text-sm">⭐</span>
+            </div>
+          </div>
+
+          <div class="card-body pb-4">
             <!-- Thread Title Section -->
             <div class="flex items-start justify-between">
               <div class="flex-1">
@@ -452,37 +459,27 @@ watch(
                   </div>
                 </h2>
               </div>
-              
-              <!-- Admin Actions -->
-              <div v-if="store.isAdmin()" class="flex gap-2 ml-4" @click.stop>
-                <div class="flex items-center gap-2">
-                  <label class="label cursor-pointer gap-2">
-                    <span class="label-text text-xs">{{ $t('home.readOnly') }}</span>
-                    <input
-                      type="checkbox"
-                      :checked="thread.readOnly || false"
-                      @change="toggleReadOnly(thread.id, $event.target.checked)"
-                      class="checkbox checkbox-xs"
-                    />
-                  </label>
-                </div>
-                <button
-                  v-if="editingThreadId !== thread.id"
-                  class="btn btn-sm btn-outline"
-                  @click="startEditingThread(thread)"
-                  title="Edit thread title"
-                >
-                  ✏️
-                </button>
-                <button
-                  v-if="editingThreadId !== thread.id"
-                  class="btn btn-sm btn-outline btn-error"
-                  @click="confirmDeleteThread(thread)"
-                  title="Delete thread"
-                >
-                  🗑️
-                </button>
-              </div>
+            </div>
+
+            <div class="flex items-center text-sm text-gray-500 gap-3 mt-1">
+              <AvatarInitial :name="decryptUser(thread.author).name" />
+              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" />
+              <span>•</span>
+              <span>
+                {{ formatThreadDate(thread.createdAt) }}
+              </span>
+            </div>
+            
+            <!-- Last post info -->
+            <div v-if="getLastPostInfo(thread.id)" class="flex items-center text-xs text-gray-400 gap-2 mt-1">
+              <span>{{ $t('home.lastPostBy') }}</span>
+              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" />
+              <span>•</span>
+              <span>{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
+            </div>
+
+            <!-- Bottom Controls Row -->
+            <div class="flex items-center justify-between mt-4 pt-3 border-t border-base-200">
               <!-- Subscribe Checkbox -->
               <div class="flex items-center gap-2" @click.stop>
                 <input
@@ -496,22 +493,42 @@ watch(
                   {{ isSubscribed(thread) ? $t('home.unsubscribe') : $t('home.subscribe') }}
                 </label>
               </div>
-            </div>
 
-            <div class="flex items-center text-sm text-gray-500 gap-3 mt-1">
-              <AvatarInitial :name="decryptUser(thread.author).name" />
-              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" />
-              <span>•</span>
-              <span>
-                {{ formatThreadDate(thread.createdAt) }}
-              </span>
-            </div>
-            <!-- Last post info -->
-            <div v-if="getLastPostInfo(thread.id)" class="flex items-center text-xs text-gray-400 gap-2 mt-1">
-              <span>{{ $t('home.lastPostBy') }}</span>
-              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" />
-              <span>•</span>
-              <span>{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
+              <!-- Admin Controls Group -->
+              <div v-if="store.isAdmin()" class="flex items-center gap-2" @click.stop>
+                <!-- Read-only Toggle -->
+                <div class="flex items-center gap-2">
+                  <label class="label cursor-pointer gap-2">
+                    <span class="label-text text-xs">{{ $t('home.readOnly') }}</span>
+                    <input
+                      type="checkbox"
+                      :checked="thread.readOnly || false"
+                      @change="toggleReadOnly(thread.id, $event.target.checked)"
+                      class="checkbox checkbox-xs"
+                    />
+                  </label>
+                </div>
+                
+                <!-- Admin Action Buttons -->
+                <div class="flex gap-1">
+                  <button
+                    v-if="editingThreadId !== thread.id"
+                    class="btn btn-xs btn-outline"
+                    @click="startEditingThread(thread)"
+                    title="Edit thread title"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    v-if="editingThreadId !== thread.id"
+                    class="btn btn-xs btn-outline btn-error"
+                    @click="confirmDeleteThread(thread)"
+                    title="Delete thread"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -7,7 +7,7 @@
     "home": {
       "createThread": "Create Thread",
       "threadTitle": "Enter a thread title...",
-      "forumThreads": "Forum Threads",
+      "forumThreads": "Threads",
       "noThreads": "No threads yet. Be the first to post!",
       "messages": "messages",
       "pending": "Pending...",
