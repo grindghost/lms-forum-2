@@ -36,6 +36,14 @@ export const useForumStore = defineStore('forum', () => {
     }
     const fallbackGroupId = 'default-group'
 
+    // Wait for config to be loaded if not already
+    if (!config.value) {
+      await loadConfig()
+    }
+
+    let detectedUser = fallbackUser
+    let extractedGroupId = fallbackGroupId
+
     if (window.ADL && ADL.XAPIWrapper && ADL.XAPIWrapper.lrs) {
       const lrs = ADL.XAPIWrapper.lrs
       let actor = lrs.actor
@@ -56,20 +64,29 @@ export const useForumStore = defineStore('forum', () => {
       const email = actor && actor.mbox ? actor.mbox.replace('mailto:', '') : fallbackUser.email
       const name = actor && actor.name ? actor.name.replace(/\+/g, ' ') : fallbackUser.name
 
+      detectedUser = { email, name }
       const activityId = lrs.activity_id || ''
-      const extractedGroupId = activityId.includes('-') ? activityId.split('-')[0] : fallbackGroupId
-
-      currentUser.value = { email, name }
-      groupId.value = extractedGroupId
-
-      console.log('✅ LMS user loaded:', currentUser.value)
-      console.log('📦 Group ID set to:', groupId.value)
-      console.log('🔍 Activity ID was:', lrs.activity_id)
-    } else {
-      currentUser.value = fallbackUser
-      groupId.value = fallbackGroupId
-      console.warn('⚠️ No LMS context detected. Using fallback user and group.')
+      extractedGroupId = activityId.includes('-') ? activityId.split('-')[0] : fallbackGroupId
     }
+
+    // If detected user is admin, use admin object from config
+    if (
+      config.value &&
+      config.value.admin &&
+      detectedUser.email === config.value.admin.email
+    ) {
+      currentUser.value = {
+        name: config.value.admin.name,
+        email: config.value.admin.email,
+        title: config.value.admin.title
+      }
+    } else {
+      currentUser.value = detectedUser
+    }
+    groupId.value = extractedGroupId
+
+    console.log('✅ User loaded:', currentUser.value)
+    console.log('📦 Group ID set to:', groupId.value)
   }
 
   return {

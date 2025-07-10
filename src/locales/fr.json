@@ -1,7 +1,8 @@
 {
     "header": {
       "title": "Forum",
-      "language": "Langue"
+      "language": "Langue",
+      "myBrioSpace": "Mon espace Brio"
     },
     "home": {
       "createThread": "Créer une discussion",
@@ -44,5 +45,16 @@
     "common": {
       "by": "par",
       "loading": "Chargement..."
+    },
+    "footer": {
+      "brio": "Brio",
+      "about": "À propos",
+      "contact": "Contactez-nous",
+      "help": "Aide",
+      "helpCenter": "Centre d'aide",
+      "accessibility": "Accessibilité",
+      "legal": "Mentions légales",
+      "terms": "Conditions d'utilisation",
+      "privacy": "Confidentialité et témoins"
     }
   }

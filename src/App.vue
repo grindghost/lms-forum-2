@@ -1,50 +1,17 @@
 <template>
   <div>
-    <header class="w-full flex items-center justify-between px-6 py-6 bg-white shadow fixed top-0 left-0 z-10 pointer-events-auto">
-      <div class="flex items-center gap-4">
-        <!-- Logo -->
-        <img
-          src="@/assets/header-logo.svg"
-          alt="Forum Logo"
-          class="w-[6rem] cursor-pointer"
-          @click="goToCallback"
-        />
-
-        <!-- Separator -->
-        <div class="h-10 w-px bg-gray-200"></div>
-
-        <!-- Title -->
-        <h1
-          class="text-3xl font-[600] font-overpass tracking-tight cursor-pointer pointer-events-auto text-base-content mt-2"
-          @click="goHome"
-        >
-          {{ $t('header.title') }}
-        </h1>
-      </div>
-      
-      <!-- Language Switcher -->
-      <div class="flex items-center gap-2">
-        <span class="text-sm text-gray-600">{{ $t('header.language') }}:</span>
-        <div class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-sm btn-outline">
-            {{ currentLocale === 'en' ? '🇺🇸 EN' : '🇫🇷 FR' }}
-          </div>
-          <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-32">
-            <li><a @click="changeLanguage('en')" class="cursor-pointer">🇺🇸 English</a></li>
-            <li><a @click="changeLanguage('fr')" class="cursor-pointer">🇫🇷 Français</a></li>
-          </ul>
-        </div>
-      </div>
-    </header>
-
+    <Header />
     <!-- Main content with top padding to avoid header overlap -->
-    <div class="">
+    <div>
       <router-view />
     </div>
+    <Footer />
   </div>
 </template>
 
 <script setup>
+import Header from '@/components/Header.vue'
+import Footer from '@/components/Footer.vue'
 import { onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
