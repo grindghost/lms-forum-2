@@ -39,7 +39,7 @@
               @click.stop="copyPostLink"
               :title="$t('thread.copyLink')"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 010 5.656m-1.414-1.414a2 2 0 010-2.828m-2.828 2.828a4 4 0 010-5.656m1.414 1.414a2 2 0 010 2.828M15 7h2a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2h2"/></svg>
+              <img src="@/assets/url.svg" alt="Copy link" class="w-4 h-4 url-icon" />
             </button>
           </div>
         </div>
@@ -348,6 +348,10 @@ onUnmounted(() => {
 }
 .font-sans {
   font-family: 'Source Sans Pro', sans-serif;
+}
+
+.url-icon {
+  filter: brightness(0) saturate(100%) invert(60%) sepia(0%) saturate(0%) hue-rotate(0deg) brightness(100%) contrast(100%);
 }
 </style>
 
