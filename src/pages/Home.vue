@@ -9,6 +9,7 @@ import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFor
 import { useI18n } from 'vue-i18n'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
+import DeleteThreadModal from '@/components/DeleteThreadModal.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -518,47 +519,12 @@ watch(
     </main>
 
     <!-- Delete Confirmation Modal -->
-    <div v-if="showDeleteConfirm" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-      <div class="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
-        <div class="flex items-start gap-4">
-          <!-- Warning Icon -->
-          <div class="flex-shrink-0">
-            <div class="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
-              <span class="text-yellow-600 text-lg">⚠️</span>
-            </div>
-          </div>
-          
-          <!-- Content -->
-          <div class="flex-1">
-            <h3 class="text-lg font-semibold text-gray-900 mb-2">
-              {{ $t('home.confirmDeleteTitle') }}
-            </h3>
-            <p class="text-gray-600 mb-4">
-              {{ $t('home.confirmDeleteMessage') }}
-            </p>
-            <p class="text-sm text-gray-500 mb-4">
-              {{ $t('home.confirmDeleteWarning') }}
-            </p>
-            
-            <!-- Action Buttons -->
-            <div class="flex gap-3 justify-end">
-              <button
-                class="btn btn-outline"
-                @click="cancelDeleteThread"
-              >
-                {{ $t('home.cancel') }}
-              </button>
-              <button
-                class="btn btn-error"
-                @click="deleteThread"
-              >
-                {{ $t('home.delete') }}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <DeleteThreadModal
+      :show="showDeleteConfirm"
+      :threadTitle="threadToDelete?.title || ''"
+      @cancel="cancelDeleteThread"
+      @confirm="deleteThread"
+    />
   </div>
 </template>
 

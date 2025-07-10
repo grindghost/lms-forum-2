@@ -12,6 +12,7 @@ import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFor
 import { useI18n } from 'vue-i18n'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
+import NewPostModal from '@/components/NewPostModal.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -354,22 +355,15 @@ const threadAuthorEmail = computed(() => {
         </div>
       </div>
 
-      <!-- Overlay Modal -->
-      <div v-if="showNewPostModal" class="fixed inset-0 bg-black bg-opacity-60 z-30 flex items-center justify-center">
-        <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
-          <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
-          <RichEditor v-model="newReply" :placeholder="$t('thread.writeMessage')" />
-
-          <div class="flex justify-end gap-2 mt-4">
-            <button class="btn btn-outline" @click="closeNewPostModal">
-              {{ $t('thread.cancel') }}
-            </button>
-            <button class="btn btn-primary" @click="() => { reply(null); closeNewPostModal() }">
-              {{ $t('thread.send') }}
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- New Post Modal -->
+      <NewPostModal
+        :show="showNewPostModal"
+        :content="newReply"
+        :RichEditor="RichEditor"
+        @cancel="closeNewPostModal"
+        @confirm="() => { reply(null); closeNewPostModal() }"
+        @update:content="val => newReply = val"
+      />
 
 
     </div>
