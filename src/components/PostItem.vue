@@ -85,7 +85,7 @@
           <button
             v-if="store.isAdmin() || decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-error"
-            @click="deletePost(post.id)"
+            @click="store.isAdmin() ? confirmDeletePost(post.id) : deletePost(post.id)"
           >
             {{ $t('thread.delete') }}
           </button>
@@ -149,12 +149,21 @@
             :decryptText="decryptText"
             :encryptText="encryptText"
             :deterministicEncryptText="deterministicEncryptText"
+            :adminDeletePost="adminDeletePost"
             @update:newReply="emit('update:newReply', $event)"
           />
         </div>
       </div>
     </div>
   </div>
+  <!-- Delete Confirmation Modal -->
+  <DeletePostModal
+    :show="showDeleteConfirm"
+    :postAuthor="decryptUser(props.post.author).name"
+    :postDate="formattedDate"
+    @cancel="cancelDeletePost"
+    @confirm="executeDeletePost"
+  />
 </template>
 
 
@@ -170,6 +179,7 @@ import { ref as dbRef, update, serverTimestamp } from 'firebase/database'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import CustomToast from '@/components/CustomToast.vue'
+import DeletePostModal from '@/components/DeletePostModal.vue'
 
 const { t: $t, locale } = useI18n()
 const route = useRoute()
@@ -192,7 +202,8 @@ const props = defineProps({
   sanitizeHTML: Function,
   decryptText: Function,
   encryptText: Function,
-  deterministicEncryptText: Function
+  deterministicEncryptText: Function,
+  adminDeletePost: Function
 })
 
 const emit = defineEmits(['update:newReply'])
@@ -230,13 +241,17 @@ const formattedDate = computed(() => {
 
 // Check if user can reply to posts
 const canReply = computed(() => {
-  // Admin can always reply
-  if (props.store.isAdmin()) return true
-  // If thread is read-only, only admin can reply
+  // If thread is read-only, no one can reply (not even admins)
   if (props.threadData?.readOnly) return false
+  // Admin can always reply in non-read-only threads
+  if (props.store.isAdmin()) return true
   // Otherwise, anyone can reply
   return true
 })
+
+// Delete confirmation state
+const showDeleteConfirm = ref(false)
+const postToDelete = ref(null)
 
 // --- Copy Link Logic ---
 const showCopiedToast = ref(false)
@@ -245,6 +260,26 @@ function copyPostLink() {
   navigator.clipboard.writeText(url)
   showCopiedToast.value = true
   setTimeout(() => { showCopiedToast.value = false }, 2000)
+}
+
+// --- Delete confirmation logic ---
+function confirmDeletePost(postId) {
+  postToDelete.value = postId
+  showDeleteConfirm.value = true
+}
+
+function cancelDeletePost() {
+  showDeleteConfirm.value = false
+  postToDelete.value = null
+}
+
+function executeDeletePost() {
+  if (postToDelete.value) {
+    // Call the admin delete function (to be implemented in Thread.vue)
+    props.adminDeletePost(postToDelete.value)
+    showDeleteConfirm.value = false
+    postToDelete.value = null
+  }
 }
 
 // --- Highlight on hash logic ---

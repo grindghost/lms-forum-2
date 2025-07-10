@@ -45,7 +45,10 @@
       "untitled": "Discussion sans titre",
       "readOnlyThread": "Ceci est une discussion en lecture seule. Seuls les administrateurs peuvent poster.",
       "copyLink": "Copier le lien du post",
-      "linkCopied": "Lien du post copié !"
+      "linkCopied": "Lien du post copié !",
+      "confirmDeletePostTitle": "Supprimer le message définitivement",
+      "confirmDeletePostMessage": "Êtes-vous sûr de vouloir supprimer définitivement ce message ?",
+      "confirmDeletePostWarning": "Cette action supprimera définitivement le message et toutes ses réponses de la base de données. Cette action est irréversible."
     },
     "common": {
       "by": "par",

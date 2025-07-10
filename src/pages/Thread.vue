@@ -2,7 +2,7 @@
 import { onMounted, ref, computed, watch, defineComponent, h } from 'vue'
 import { useRoute } from 'vue-router'
 import { db } from '@/firebase'
-import { ref as dbRef, onValue, push, serverTimestamp, update, get } from 'firebase/database'
+import { ref as dbRef, onValue, push, serverTimestamp, update, get, remove } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
 import { decryptText, encryptText, deterministicEncryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { sanitizeHTML } from '@/utils/sanitize'
@@ -167,6 +167,43 @@ const restorePost = async (postId) => {
   }
 }
 
+// Admin function to permanently delete a post and all its replies
+const adminDeletePost = async (postId) => {
+  try {
+    // Get all posts to find replies
+    const postsSnapshot = await get(dbRef(db, 'posts'))
+    const allPosts = postsSnapshot.val() || {}
+    
+    // Find all posts that need to be deleted (the post and all its replies)
+    const postsToDelete = new Set()
+    const findReplies = (parentId) => {
+      Object.entries(allPosts).forEach(([id, post]) => {
+        if (post.parentId === parentId) {
+          postsToDelete.add(id)
+          findReplies(id) // Recursively find replies to replies
+        }
+      })
+    }
+    
+    // Add the main post and find all its replies
+    postsToDelete.add(postId)
+    findReplies(postId)
+    
+    console.log('Deleting posts:', Array.from(postsToDelete))
+    
+    // Delete all posts in parallel
+    const deletePromises = Array.from(postsToDelete).map(id => 
+      remove(dbRef(db, `posts/${id}`))
+    )
+    
+    await Promise.all(deletePromises)
+    console.log('Successfully deleted', postsToDelete.size, 'posts')
+    
+  } catch (error) {
+    console.error('Error deleting post and replies:', error)
+  }
+}
+
 const nestedPosts = computed(() => {
   const map = {}
   posts.value.forEach((p) => {
@@ -223,6 +260,11 @@ const renderPosts = (parentId = null, depth = 0) => {
   const filteredList = hideDeletedPosts.value 
     ? list.filter(p => !p.deleted)
     : list
+  
+  // If thread is read-only, only show original posts (depth 0) and hide all replies
+  if (threadData.value?.readOnly && depth > 0) {
+    return []
+  }
   
   return filteredList.map((p) => ({
     ...p,
@@ -328,6 +370,7 @@ const threadAuthorEmail = computed(() => {
           :decryptText="decryptText"
           :encryptText="encryptText"
           :deterministicEncryptText="deterministicEncryptText"
+          :adminDeletePost="adminDeletePost"
           @update:newReply="val => newReply = val"
         />
       </div>

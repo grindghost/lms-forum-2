@@ -45,7 +45,10 @@
       "untitled": "Untitled thread",
       "readOnlyThread": "This is a read-only thread. Only administrators can post.",
       "copyLink": "Copy post link",
-      "linkCopied": "Post link copied!"
+      "linkCopied": "Post link copied!",
+      "confirmDeletePostTitle": "Delete post permanently",
+      "confirmDeletePostMessage": "Are you sure you want to permanently delete this post?",
+      "confirmDeletePostWarning": "This action will permanently remove the post and all its replies from the database. This action cannot be undone."
     },
     "common": {
       "by": "by",
