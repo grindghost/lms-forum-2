@@ -24,3 +24,8 @@
   margin: 0.25em 0 !important;
 }
 
+@layer components {
+  .btn-primary {
+    @apply font-overpass pt-0.5; /* or font-serif, font-mono, or custom */
+  }
+}

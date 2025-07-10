@@ -16,7 +16,10 @@
       "delete": "Supprimer",
       "confirmDeleteTitle" : "Supprimer la discussion",
       "confirmDeleteMessage" : "Êtes-vous sûr de vouloir supprimer cette discussion ?",
-      "confirmDeleteWarning": "Tous les messages de cette discussion seront également supprimés. Cette action est irréversible."
+      "confirmDeleteWarning": "Tous les messages de cette discussion seront également supprimés. Cette action est irréversible.",
+      "readOnly": "Lecture seule",
+      "dragToReorder": "Glisser pour réorganiser",
+      "group": "Groupe"
     },
     "thread": {
       "reply": "Répondre",
@@ -35,7 +38,8 @@
       "noPostsYet": "Aucun message pour le moment",
       "beFirstToPost": "Soyez le premier à partager vos pensées !",
       "createFirstPost": "Créer le premier message",
-      "untitled": "Discussion sans titre"
+      "untitled": "Discussion sans titre",
+      "readOnlyThread": "Ceci est une discussion en lecture seule. Seuls les administrateurs peuvent poster."
     },
     "common": {
       "by": "par",

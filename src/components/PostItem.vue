@@ -6,7 +6,7 @@
       <div class="avatar placeholder w-6 h-6 shrink-0">
         <div class="bg-neutral-focus text-neutral-content rounded-full w-10">
           <span class="text-sm font-fraunces font-extrabold">
-            {{ getInitials(decryptText(post.author)) }}
+            {{ getInitials(decryptUser(post.author).name) }}
           </span>
         </div>
       </div>
@@ -25,7 +25,7 @@
         <!-- Meta Info -->
         <div class="text-sm text-base-content/60 mb-1 flex justify-between">
           <span>
-            {{ decryptText(post.author) }}
+            {{ decryptUser(post.author).name }}
           </span>
           <span>
             {{ formattedDate }}
@@ -51,7 +51,7 @@
 
         <!-- Actions -->
         <div v-if="!post.deleted && editingPostId !== post.id" class="post-actions flex flex-wrap gap-2 text-xs mt-3" :class="{ 'show-actions': isHovered }">
-          <button class="btn btn-xs btn-outline btn-primary" @click="showReplyEditor(post.id)">
+          <button v-if="canReply" class="btn btn-xs btn-outline btn-primary" @click="showReplyEditor(post.id)">
             {{ $t('thread.reply') }}
           </button>
           <button
@@ -62,14 +62,14 @@
             👍 {{ post.likes }}
           </button>
           <button
-            v-if="store.isAdmin() || decryptText(post.author) === store.currentUser.email"
+            v-if="store.isAdmin() || decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-error"
             @click="deletePost(post.id)"
           >
             {{ $t('thread.delete') }}
           </button>
           <button
-            v-if="decryptText(post.author) === store.currentUser.email"
+            v-if="decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-accent"
             @click="startEditing(post.id, sanitizeHTML(decryptText(post.content)))"
           >
@@ -80,7 +80,7 @@
         <!-- Actions for Deleted Posts -->
         <div v-if="post.deleted && editingPostId !== post.id" class="post-actions flex flex-wrap gap-2 text-xs mt-3" :class="{ 'show-actions': isHovered }">
           <button
-            v-if="decryptText(post.author) === store.currentUser.email"
+            v-if="decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-success"
             @click="restorePost(post.id)"
           >
@@ -138,6 +138,7 @@ import { computed, ref, onUnmounted } from 'vue'
 import { defineProps, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatDate } from '@/utils/dateFormat'
+import { decryptUser } from '@/utils/encryption'
 import { db } from '@/firebase'
 import { ref as dbRef, update, serverTimestamp } from 'firebase/database'
 
@@ -145,6 +146,7 @@ const { t: $t, locale } = useI18n()
 
 const props = defineProps({
   post: Object,
+  threadData: Object,
   replyingTo: [String, null],
   newReply: String,
   depth: Number,
@@ -197,6 +199,16 @@ const formattedDate = computed(() => {
   return formatDate(props.post.createdAt, locale.value)
 })
 
+// Check if user can reply to posts
+const canReply = computed(() => {
+  // Admin can always reply
+  if (props.store.isAdmin()) return true
+  // If thread is read-only, only admin can reply
+  if (props.threadData?.readOnly) return false
+  // Otherwise, anyone can reply
+  return true
+})
+
 function handleMouseEnter() {
   props.store.setHoveredPost(props.post.id)
 }
@@ -230,7 +242,7 @@ async function saveEdit(postId) {
   editingContent.value = ''
 }
 
-const getInitials = (email) => email?.charAt(0)?.toUpperCase() || '?'
+const getInitials = (name) => name?.charAt(0)?.toUpperCase() || '?'
 
 // Cleanup hover state on component unmount
 onUnmounted(() => {

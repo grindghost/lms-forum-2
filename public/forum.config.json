@@ -1,5 +1,9 @@
 {
-  "adminEmail": "admin@example.com",
+  "admin": {
+    "name": "Administrator",
+    "email": "admin@example.com",
+    "title": "Forum Administrator"
+  },
   "group": "group-123",
   "callbackURL": "https://www.brioeducation.ca/"
 }

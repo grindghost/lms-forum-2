@@ -13,7 +13,10 @@ module.exports = {
       colors: {
         primary: '#0e67d6', // Blue
         secondary: '#F3F4F6' // Light gray
-      }
+      },
+      fontFamily: {
+        overpass: ['"Overpass"', 'sans-serif'], // this creates `font-overpass`
+      },
     }
   },
   plugins: [require('daisyui')],

@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { db } from '@/firebase'
 import { ref as dbRef, onValue, push, serverTimestamp, update, get } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
-import { decryptText, encryptText, deterministicEncryptText } from '@/utils/encryption'
+import { decryptText, encryptText, deterministicEncryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { sanitizeHTML } from '@/utils/sanitize'
 import RichEditor from '@/components/RichEditor.vue'
 import PostItem from '@/components/PostItem.vue'
@@ -70,7 +70,7 @@ const reply = async (parentId = null) => {
   if (!newReply.value.trim()) return
 
   const encrypted = encryptText(sanitizeHTML(newReply.value))
-  const encryptedAuthor = encryptText(store.currentUser.email)
+  const encryptedAuthor = encryptUser(store.currentUser)
 
   await push(dbRef(db, 'posts'), {
     threadId,
@@ -179,11 +179,11 @@ const nestedPosts = computed(() => {
 const threadAuthor = computed(() => {
   // If there are posts, use the first post's author
   if (posts.value.length > 0 && posts.value[0]?.author) {
-    return decryptText(posts.value[0].author)
+    return decryptUser(posts.value[0].author).name
   }
   // Otherwise, use the thread's author
   if (threadData.value?.author) {
-    return decryptText(threadData.value.author)
+    return decryptUser(threadData.value.author).name
   }
   return null
 })
@@ -203,6 +203,16 @@ const threadDate = computed(() => {
     return formatDate(threadData.value.createdAt, locale.value)
   }
   return ''
+})
+
+// Check if user can post in this thread
+const canPost = computed(() => {
+  // Admin can always post
+  if (store.isAdmin()) return true
+  // If thread is read-only, only admin can post
+  if (threadData.value?.readOnly) return false
+  // Otherwise, anyone can post
+  return true
 })
 
 const renderPosts = (parentId = null, depth = 0) => {
@@ -258,7 +268,8 @@ function goToCallback() {
             </div>
           </div>
           <span>{{ threadAuthor || '...' }}</span>
-          <span v-if="threadDate"> • {{ threadDate }}</span>
+          <span v-if="threadDate">•</span>
+          <span v-if="threadDate"> {{ threadDate }}</span>
         </div>
       </div>
 
@@ -281,6 +292,7 @@ function goToCallback() {
           v-for="post in renderPosts()"
           :key="post.id"
           :post="post"
+          :threadData="threadData"
           :replyingTo="replyingTo"
           :newReply="newReply"
           :depth="post.depth"
@@ -312,17 +324,22 @@ function goToCallback() {
             {{ $t('thread.beFirstToPost') }}
           </p>
           <button 
+            v-if="canPost"
             class="btn btn-primary btn-lg"
             @click="openNewPostModal"
           >
             {{ $t('thread.createFirstPost') }}
           </button>
+          <div v-else class="text-base-content/60">
+            {{ $t('thread.readOnlyThread') }}
+          </div>
         </div>
       </div>
 
       <!-- Top-level reply box -->
 <!-- Floating + Button -->
 <button
+  v-if="canPost"
   class="btn btn-primary btn-circle fixed bottom-6 right-6 z-20 shadow-lg text-white text-2xl"
   @click="openNewPostModal"
   aria-label="New Post"

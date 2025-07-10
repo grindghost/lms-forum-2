@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { db } from '@/firebase'
 import { push, ref as dbRef, serverTimestamp, onValue, update, remove, get } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
-import { encryptText, decryptText } from '@/utils/encryption'
+import { encryptText, decryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFormat'
 import { useI18n } from 'vue-i18n'
 
@@ -29,6 +29,12 @@ const editingThreadTitle = ref('')
 const showDeleteConfirm = ref(false)
 const threadToDelete = ref(null)
 
+// Drag and drop state
+const draggedThread = ref(null)
+const draggedOverThread = ref(null)
+const isDragging = ref(false)
+const dropPosition = ref(null) // 'above' or 'below'
+
 // Load config
 onMounted(() => {
   store.loadConfig()
@@ -41,15 +47,22 @@ const goToThread = (id) => {
 
 // Create new thread
 const createThread = async () => {
-  if (!newTitle.value.trim() || !store.config?.group) return
+  if (!newTitle.value.trim() || !store.groupId) return
 
-  const encryptedAuthor = encryptText(store.currentUser.email)
+  console.log('📝 Creating thread:', {
+    title: newTitle.value,
+    groupId: store.groupId,
+    user: store.currentUser
+  })
+
+  const encryptedAuthor = encryptUser(store.currentUser)
 
   await push(dbRef(db, 'threads'), {
     title: newTitle.value,
     createdAt: serverTimestamp(),
     author: encryptedAuthor,
-    group: store.config.group
+    group: store.groupId,
+    sortOrder: Date.now() // Use timestamp as initial sort order
   })
 
   newTitle.value = ''
@@ -75,6 +88,157 @@ const saveEditThread = async (threadId) => {
   
   editingThreadId.value = null
   editingThreadTitle.value = ''
+}
+
+const toggleReadOnly = async (threadId, isReadOnly) => {
+  try {
+    await update(dbRef(db, `threads/${threadId}`), {
+      readOnly: isReadOnly
+    })
+  } catch (error) {
+    console.error('Error toggling read-only status:', error)
+  }
+}
+
+// Drag and drop functions
+const handleDragStart = (e, thread) => {
+  if (!store.isAdmin()) return
+  draggedThread.value = thread
+  isDragging.value = true
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/html', '') // Required for Firefox
+}
+
+const handleDragOver = (e, thread) => {
+  if (!store.isAdmin() || !isDragging.value || draggedThread.value?.id === thread.id) return
+  e.preventDefault()
+  e.dataTransfer.dropEffect = 'move'
+  draggedOverThread.value = thread
+  
+  // Determine drop position based on mouse position
+  const rect = e.currentTarget.getBoundingClientRect()
+  const dropY = e.clientY
+  const targetCenterY = rect.top + rect.height / 2
+  
+  // Use the same logic as in handleDrop
+  const currentThreads = [...threads.value]
+  const targetIndex = currentThreads.findIndex(t => t.id === thread.id)
+  
+  let dropAbove
+  if (targetIndex === 0) {
+    // For the first item, use a larger "drop above" zone (top 60% of the card)
+    const topZone = rect.top + rect.height * 0.6
+    dropAbove = dropY < topZone
+  } else {
+    // For other items, use the center line
+    dropAbove = dropY < targetCenterY
+  }
+  
+  dropPosition.value = dropAbove ? 'above' : 'below'
+}
+
+const handleDragLeave = (e) => {
+  if (!store.isAdmin()) return
+  draggedOverThread.value = null
+  dropPosition.value = null
+}
+
+const handleDrop = async (e, targetThread) => {
+  if (!store.isAdmin() || !isDragging.value || !draggedThread.value) return
+  e.preventDefault()
+  
+  const draggedThreadId = draggedThread.value.id
+  const targetThreadId = targetThread.id
+  
+  if (draggedThreadId === targetThreadId) return
+  
+  try {
+    // Get current threads to calculate new sort order
+    const currentThreads = [...threads.value]
+    const draggedIndex = currentThreads.findIndex(t => t.id === draggedThreadId)
+    const targetIndex = currentThreads.findIndex(t => t.id === targetThreadId)
+    
+    console.log('Drop Debug:', {
+      draggedThreadId,
+      targetThreadId,
+      draggedIndex,
+      targetIndex,
+      currentThreads: currentThreads.map(t => ({ id: t.id, title: t.title }))
+    })
+    
+    if (draggedIndex === -1 || targetIndex === -1) return
+    
+    // Determine drop position based on mouse position relative to target
+    const rect = e.currentTarget.getBoundingClientRect()
+    const dropY = e.clientY
+    const targetCenterY = rect.top + rect.height / 2
+    
+    // Use a more intuitive drop detection
+    let dropAbove
+    if (targetIndex === 0) {
+      // For the first item, use a larger "drop above" zone (top 60% of the card)
+      const topZone = rect.top + rect.height * 0.6
+      dropAbove = dropY < topZone
+    } else {
+      // For other items, use the center line
+      dropAbove = dropY < targetCenterY
+    }
+    
+    console.log('Drop Position:', { dropY, targetCenterY, dropAbove, targetIndex })
+    
+    // Use a simpler approach: remove and insert
+    const newThreads = [...currentThreads]
+    const [draggedThread] = newThreads.splice(draggedIndex, 1)
+    
+    let insertIndex
+    if (dropAbove) {
+      // Drop above: insert before target
+      insertIndex = targetIndex
+    } else {
+      // Drop below: insert after target
+      insertIndex = targetIndex + 1
+    }
+    
+    // Adjust insert index if we removed an item before the target
+    if (draggedIndex < targetIndex) {
+      insertIndex -= 1
+    }
+    
+    newThreads.splice(insertIndex, 0, draggedThread)
+    
+    console.log('New Order:', newThreads.map(t => ({ id: t.id, title: t.title })))
+    
+    // Calculate new sort orders
+    const sortOrderStep = 1000 // Gap between sort orders
+    const updates = {}
+    
+    newThreads.forEach((thread, index) => {
+      const newSortOrder = (index + 1) * sortOrderStep
+      updates[`threads/${thread.id}/sortOrder`] = newSortOrder
+    })
+    
+    console.log('Updates:', updates)
+    
+    // Update all affected threads
+    await update(dbRef(db), updates)
+    
+  } catch (error) {
+    console.error('Error reordering threads:', error)
+  } finally {
+    // Reset drag state
+    draggedThread.value = null
+    draggedOverThread.value = null
+    isDragging.value = false
+    dropPosition.value = null
+  }
+}
+
+const handleDragEnd = () => {
+  if (!store.isAdmin()) return
+  draggedThread.value = null
+  draggedOverThread.value = null
+  isDragging.value = false
+  dropPosition.value = null
 }
 
 // Delete thread functions
@@ -116,13 +280,11 @@ const deleteThread = async () => {
   }
 }
 
-// Load threads and posts once config is ready
+// Load threads and posts once config and groupId are ready
 watch(
-  () => store.config,
-  (config) => {
-    if (!config?.group) return
-
-    const groupId = config.group
+  () => [store.config, store.groupId],
+  ([config, groupId]) => {
+    if (!config || !groupId) return
 
     // Load threads
     onValue(dbRef(db, 'threads'), (threadSnapshot) => {
@@ -140,14 +302,31 @@ watch(
           }
         })
 
-        threads.value = Object.entries(allThreads)
+        const allThreadsArray = Object.entries(allThreads)
           .map(([id, thread]) => ({ 
             id, 
             ...thread, 
-            messageCount: postCounts[id] || 0 
+            messageCount: postCounts[id] || 0,
+            sortOrder: thread.sortOrder || 0 // Default to 0 for existing threads
           }))
-          .filter((t) => t.group === groupId)
-          .sort((a, b) => b.createdAt - a.createdAt)
+        
+        // Filter by groupId
+        const filteredThreads = allThreadsArray.filter((t) => t.group === store.groupId)
+        
+        console.log('🔍 Thread filtering:', {
+          totalThreads: allThreadsArray.length,
+          groupId: store.groupId,
+          filteredCount: filteredThreads.length,
+          allGroups: [...new Set(allThreadsArray.map(t => t.group))]
+        })
+        
+        threads.value = filteredThreads.sort((a, b) => {
+          // First sort by sortOrder (lower numbers first), then by creation date
+          if (a.sortOrder !== b.sortOrder) {
+            return a.sortOrder - b.sortOrder
+          }
+          return b.createdAt - a.createdAt
+        })
       })
     })
   },
@@ -169,9 +348,14 @@ watch(
         </button>
       </div>
 
-      <h1 class="text-2xl font-bold text-base-content font-overpass border-b pb-2">
-        {{ $t('home.forumThreads') }}
-      </h1>
+      <div class="flex items-center justify-between border-b pb-2">
+        <h1 class="text-2xl font-bold text-base-content font-overpass">
+          {{ $t('home.forumThreads') }}
+        </h1>
+        <div class="text-sm text-gray-500">
+          {{ $t('home.group') }}: <span class="font-semibold">{{ store.groupId }}</span>
+        </div>
+      </div>
 
       <div v-if="threads.length === 0" class="text-center text-gray-500 mt-8">
         {{ $t('home.noThreads') }}
@@ -183,6 +367,18 @@ watch(
           v-for="thread in threads"
           :key="thread.id"
           class="rounded-lg bg-base-100 shadow hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer"
+          :class="{
+            'opacity-50': isDragging && draggedThread?.id === thread.id,
+            'border-dashed border-primary bg-primary/5': draggedOverThread?.id === thread.id,
+            'border-t-4 border-t-primary': draggedOverThread?.id === thread.id && dropPosition === 'above',
+            'border-b-4 border-b-primary': draggedOverThread?.id === thread.id && dropPosition === 'below'
+          }"
+          draggable="true"
+          @dragstart="handleDragStart($event, thread)"
+          @dragover="handleDragOver($event, thread)"
+          @dragleave="handleDragLeave($event)"
+          @drop="handleDrop($event, thread)"
+          @dragend="handleDragEnd"
           @click="goToThread(thread.id)"
         >
           <div class="card-body">
@@ -205,15 +401,32 @@ watch(
                   </button>
                 </div>
                 <h2 v-else class="card-title font-overpass font-[400]">
+                  <div v-if="store.isAdmin()" class="mr-2 text-gray-400 cursor-grab active:cursor-grabbing" :title="$t('home.dragToReorder')">
+                    ⋮⋮
+                  </div>
                   {{ thread.title }}
                   <div class="badge badge-primary badge-outline">
                     {{ thread.messageCount }} {{ $t('home.messages') }}
+                  </div>
+                  <div v-if="thread.readOnly" class="badge badge-warning badge-outline" title="Read-only thread">
+                    🔒
                   </div>
                 </h2>
               </div>
               
               <!-- Admin Actions -->
               <div v-if="store.isAdmin()" class="flex gap-2 ml-4" @click.stop>
+                <div class="flex items-center gap-2">
+                  <label class="label cursor-pointer gap-2">
+                    <span class="label-text text-xs">{{ $t('home.readOnly') }}</span>
+                    <input
+                      type="checkbox"
+                      :checked="thread.readOnly || false"
+                      @change="toggleReadOnly(thread.id, $event.target.checked)"
+                      class="checkbox checkbox-xs"
+                    />
+                  </label>
+                </div>
                 <button
                   v-if="editingThreadId !== thread.id"
                   class="btn btn-sm btn-outline"
@@ -237,13 +450,13 @@ watch(
               <div class="avatar placeholder">
                 <div class="bg-neutral-focus text-neutral-content rounded-full w-6 h-6">
                   <span class="text-xs font-fraunces font-extrabold">
-                    {{ decryptText(thread.author).charAt(0).toUpperCase() }}
+                    {{ decryptUser(thread.author).name.charAt(0).toUpperCase() }}
                   </span>
                 </div>
               </div>
 
               <span class="truncate max-w-[160px]">
-                {{ decryptText(thread.author) }}
+                {{ decryptUser(thread.author).name }}
               </span>
 
               <span>•</span>
@@ -309,5 +522,22 @@ watch(
 }
 .font-sans {
   font-family: 'Source Sans Pro', sans-serif;
+}
+
+/* Drag and drop styles */
+.cursor-grab {
+  cursor: grab;
+}
+
+.cursor-grabbing {
+  cursor: grabbing;
+}
+
+/* Prevent text selection during drag */
+[draggable="true"] {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 </style>

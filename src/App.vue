@@ -57,8 +57,9 @@ const { locale } = useI18n()
 
 const currentLocale = computed(() => locale.value)
 
-onMounted(() => {
-  store.loadConfig()
+onMounted(async () => {
+  await store.loadConfig()
+  await store.initFromLMS()
 })
 
 async function goToCallback() {

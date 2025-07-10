@@ -24,3 +24,18 @@ export function deterministicEncryptText(text: string): string {
   })
   return encrypted.toString()
 }
+
+// Encrypt user object
+export function encryptUser(user: { name: string; email: string }): string {
+  return encryptText(JSON.stringify(user))
+}
+
+// Decrypt user object
+export function decryptUser(encryptedUser: string): { name: string; email: string } {
+  try {
+    const decrypted = decryptText(encryptedUser)
+    return JSON.parse(decrypted)
+  } catch {
+    return { name: '[Unknown User]', email: '[unknown@example.com]' }
+  }
+}

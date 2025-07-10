@@ -16,7 +16,10 @@
       "delete": "Delete",
       "confirmDeleteTitle" : "Delete thread",
       "confirmDeleteMessage" : "Are you sure you want to delete this thread?",
-      "confirmDeleteWarning": "All posts in this thread will also be deleted. This action cannot be undone."
+      "confirmDeleteWarning": "All posts in this thread will also be deleted. This action cannot be undone.",
+      "readOnly": "Read-only",
+      "dragToReorder": "Drag to reorder",
+      "group": "Group"
     },
     "thread": {
       "reply": "Reply",
@@ -35,7 +38,8 @@
       "noPostsYet": "No posts yet",
       "beFirstToPost": "Be the first to share your thoughts!",
       "createFirstPost": "Create first post",
-      "untitled": "Untitled thread"
+      "untitled": "Untitled thread",
+      "readOnlyThread": "This is a read-only thread. Only administrators can post."
     },
     "common": {
       "by": "by",
