@@ -235,6 +235,7 @@ const props = defineProps({
   class: String,
   isAnyEditorOpen: Boolean,
   editingPostId: [String, Number, null],
+  charLimit: Number
 })
 
 const emit = defineEmits(['update:newReply'])
@@ -326,12 +327,6 @@ function maybeHighlightOnHash() {
   const fullHash = window.location.hash
   const postIdFromHash = fullHash.split('#').pop() // Get the last part after the last #
   
-  console.log('Hash check:', {
-    fullHash,
-    postIdFromHash,
-    postId: props.post.id,
-    matches: postIdFromHash === props.post.id
-  })
   
   if (postIdFromHash === props.post.id) {
     // Check if the post is deleted

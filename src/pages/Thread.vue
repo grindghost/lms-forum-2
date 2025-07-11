@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, computed, watch, defineComponent, h } from 'vue'
+import { onMounted, ref, computed, watch, defineComponent, h, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { db } from '@/firebase'
 import { ref as dbRef, onValue, push, serverTimestamp, update, get, remove } from 'firebase/database'
@@ -32,6 +32,8 @@ const hideDeletedPosts = ref(false)
 
 // Deleted post detection state
 const showDeletedPostToast = ref(false)
+
+const lastCreatedPostId = ref(null)
 
 const openNewPostModal = () => {
   replyingTo.value = null
@@ -88,7 +90,7 @@ const reply = async (parentId = null) => {
   const encrypted = encryptText(sanitizeHTML(newReply.value))
   const encryptedAuthor = encryptUser(store.currentUser)
 
-  await push(dbRef(db, 'posts'), {
+  const postRef = await push(dbRef(db, 'posts'), {
     threadId,
     parentId: parentId ?? null, // ensure null, not undefined
     content: encrypted,
@@ -98,6 +100,9 @@ const reply = async (parentId = null) => {
     likedBy: [],
     deleted: false
   })
+  
+  lastCreatedPostId.value = postRef.key
+  console.log('Last created post ID:', lastCreatedPostId.value)
 
   newReply.value = ''
   replyingTo.value = null
@@ -316,6 +321,21 @@ watch(
   },
   { immediate: true }
 )
+
+// Watch for new posts and scroll to the last created one if needed
+watch(lastCreatedPostId, async (newId) => {
+  if (newId) {
+    await nextTick()
+    setTimeout(() => {
+      const el = document.getElementById(newId)
+      console.log('Scrolling to post:', newId, 'Element found:', !!el)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+      lastCreatedPostId.value = null
+    }, 100)
+  }
+})
 
 function goToCallback() {
   if (store.config?.callbackURL) {
