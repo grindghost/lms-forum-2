@@ -2,7 +2,12 @@
   <Transition name="modal">
     <div v-if="show" class="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm z-30 flex items-center justify-center">
       <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
-        <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold font-overpass ml-4">{{ $t('thread.postReply') }}</h2>
+          <div class="text-sm text-gray-500">
+            <UserName :name="store.currentUser.name" :email="store.currentUser.email" />
+          </div>
+        </div>
         <div class="max-h-[350px] overflow-y-auto mb-4">
           <component :is="RichEditor" v-model="content" :placeholder="$t('thread.writeMessage')" :charLimit="charLimit" />
         </div>
@@ -22,8 +27,12 @@
 <script setup>
 import { defineProps, defineEmits, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useForumStore } from '@/stores/forumStore'
+import UserName from '@/components/UserName.vue'
 
 const { t: $t } = useI18n()
+
+const store = useForumStore()
 
 const props = defineProps({
   show: {

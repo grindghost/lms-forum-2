@@ -510,4 +510,11 @@ onUnmounted(() => {
   50% { box-shadow: 0 0 0 8px #ffd60033; }
   100% { box-shadow: 0 0 0 0 #ffd60000; }
 }
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  border: none;
+}
+
 </style>
