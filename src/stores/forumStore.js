@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 export const useForumStore = defineStore('forum', () => {
   const config = ref(null)
   const currentUser = ref({})
   const groupId = ref('default')
   const hoveredPostId = ref(null)
+
+  const charLimit = computed(() => config.value?.charLimit ?? 4000)
 
   const isAdmin = () => {
     return config.value && currentUser.value.email === config.value.admin?.email
@@ -97,6 +99,7 @@ export const useForumStore = defineStore('forum', () => {
     isAdmin,
     loadConfig,
     initFromLMS,
-    setHoveredPost
+    setHoveredPost,
+    charLimit
   }
 })

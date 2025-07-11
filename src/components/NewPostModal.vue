@@ -4,7 +4,7 @@
       <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
         <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
         <div class="max-h-[350px] overflow-y-auto mb-4">
-          <component :is="RichEditor" v-model="content" :placeholder="$t('thread.writeMessage')" />
+          <component :is="RichEditor" v-model="content" :placeholder="$t('thread.writeMessage')" :charLimit="charLimit" />
         </div>
         <div class="flex justify-end gap-2 mt-4">
           <button class="btn btn-outline" @click="$emit('cancel')">
@@ -37,6 +37,13 @@ const props = defineProps({
   RichEditor: {
     type: Object,
     required: true
+  },
+  /**
+   * charLimit: Maximum number of characters allowed in the post.
+   */
+  charLimit: {
+    type: Number,
+    default: 4000
   }
 })
 

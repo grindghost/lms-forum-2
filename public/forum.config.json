@@ -5,5 +5,6 @@
     "title": "Forum Administrator"
   },
   "group": "group-123",
-  "callbackURL": "https://www.brioeducation.ca/"
+  "callbackURL": "https://www.brioeducation.ca/",
+  "charLimit": 5000
 }

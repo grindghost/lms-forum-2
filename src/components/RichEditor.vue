@@ -272,7 +272,7 @@ const toggleCodeBlock = () => editor.value.chain().focus().toggleCodeBlock().run
     </div>
     <!-- Character Count -->
     <div class="char-count-sticky">
-      <span :class="isOverLimit ? 'text-red-600 font-bold' : 'text-gray-400'">
+      <span :class="{'text-red-600 font-bold': charCount >= charLimit, 'text-gray-400': charCount < charLimit}">
         {{ charCount }} / {{ charLimit }}
       </span>
     </div>

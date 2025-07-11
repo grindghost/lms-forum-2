@@ -404,6 +404,7 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
           :encryptText="encryptText"
           :deterministicEncryptText="deterministicEncryptText"
           :adminDeletePost="adminDeletePost"
+          :charLimit="store.charLimit"
           @update:newReply="val => newReply = val"
         />
       </div>
@@ -434,11 +435,11 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
       <!-- New Post Modal -->
       <NewPostModal
         :show="showNewPostModal"
-        :content="newReply"
+        v-model:content="newReply"
         :RichEditor="RichEditor"
+        :charLimit="store.charLimit"
         @cancel="closeNewPostModal"
         @confirm="() => { reply(null); closeNewPostModal() }"
-        @update:content="val => newReply = val"
       />
 
       <!-- Deleted Post Toast -->

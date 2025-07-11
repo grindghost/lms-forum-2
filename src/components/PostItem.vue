@@ -62,7 +62,7 @@
           </span>
           <template v-else>
             <div v-if="editingPostId === post.id">
-              <RichEditor v-model="editingContent" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" />
+              <RichEditor v-model="editingContent" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" :charLimit="store.charLimit" />
               <div class="flex gap-2 mt-2">
                 <button class="btn btn-sm btn-primary" @click="saveEdit(post.id)">{{ $t('thread.save') }}</button>
                 <button class="btn btn-sm btn-outline" @click="cancelEdit">{{ $t('thread.cancel') }}</button>
@@ -139,7 +139,7 @@
 
         <!-- Reply Editor -->
         <div v-if="replyingTo === post.id" class="mt-4 space-y-2">
-          <RichEditor v-model="newReplyModel" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" />
+          <RichEditor v-model="newReplyModel" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" :charLimit="store.charLimit" />
           <div class="flex gap-2">
             <button class="btn btn-sm btn-primary" @click="reply(post.id)">
               {{ $t('thread.send') }}
@@ -207,6 +207,7 @@ import UserName from '@/components/UserName.vue'
 import CustomToast from '@/components/CustomToast.vue'
 import DeletePostModal from '@/components/DeletePostModal.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
+import { useForumStore } from '@/stores/forumStore'
 
 const { t: $t, locale } = useI18n()
 const route = useRoute()
