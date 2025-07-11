@@ -24,7 +24,7 @@
       >
         <!-- Meta Info -->
         <div class="text-sm text-base-content/60 mb-1 flex justify-between items-center gap-2">
-          <UserName :name="decryptUser(post.author).name" :email="decryptUser(post.author).email" />
+          <UserName :name="adminDisplayName" :email="decryptUser(post.author).email" />
           <div class="flex items-center gap-2">
             <span>{{ formattedDate }}</span>
             <span v-if="post.likes > 0" class="flex items-center gap-1">
@@ -62,7 +62,7 @@
           </span>
           <template v-else>
             <div v-if="editingPostId === post.id">
-              <RichEditor v-model="editingContent" :placeholder="$t('thread.writeReply')" />
+              <RichEditor v-model="editingContent" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" />
               <div class="flex gap-2 mt-2">
                 <button class="btn btn-sm btn-primary" @click="saveEdit(post.id)">{{ $t('thread.save') }}</button>
                 <button class="btn btn-sm btn-outline" @click="cancelEdit">{{ $t('thread.cancel') }}</button>
@@ -78,13 +78,14 @@
           class="post-actions flex flex-wrap gap-2 text-xs mt-3"
           :class="{ 'show-actions': isHovered || replyingTo === post.id }"
         >
-          <button v-if="canReply" class="btn btn-xs btn-outline btn-primary" @click="showReplyEditor(post.id)">
+          <button v-if="canReply" class="btn btn-xs btn-outline btn-primary" @click="showReplyEditor(post.id)" :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id">
             {{ $t('thread.reply') }}
           </button>
           <button
             class="btn btn-xs btn-outline"
             :class="{ 'btn-primary': isLiked }"
             @click="likePost(post.id, post.likes, post.likedBy || [])"
+            :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             👍 {{ post.likes }}
           </button>
@@ -92,6 +93,7 @@
             v-if="store.isAdmin() || decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-error"
             @click="store.isAdmin() ? confirmDeletePost(post.id) : deletePost(post.id)"
+            :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             {{ $t('thread.delete') }}
           </button>
@@ -99,6 +101,7 @@
             v-if="decryptUser(post.author).email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-accent"
             @click="startEditing(post.id, sanitizeHTML(decryptText(post.content)))"
+            :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             {{ $t('thread.edit') }}
           </button>
@@ -136,7 +139,7 @@
 
         <!-- Reply Editor -->
         <div v-if="replyingTo === post.id" class="mt-4 space-y-2">
-          <RichEditor v-model="newReplyModel" :placeholder="$t('thread.writeReply')" />
+          <RichEditor v-model="newReplyModel" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" />
           <div class="flex gap-2">
             <button class="btn btn-sm btn-primary" @click="reply(post.id)">
               {{ $t('thread.send') }}
@@ -171,6 +174,8 @@
             :encryptText="encryptText"
             :deterministicEncryptText="deterministicEncryptText"
             :adminDeletePost="adminDeletePost"
+            :isAnyEditorOpen="isAnyEditorOpen"
+            :editingPostId="editingPostId"
             @update:newReply="emit('update:newReply', $event)"
           />
         </div>
@@ -226,7 +231,9 @@ const props = defineProps({
   encryptText: Function,
   deterministicEncryptText: Function,
   adminDeletePost: Function,
-  class: String
+  class: String,
+  isAnyEditorOpen: Boolean,
+  editingPostId: [String, Number, null],
 })
 
 const emit = defineEmits(['update:newReply'])
@@ -279,7 +286,10 @@ const postToDelete = ref(null)
 // --- Copy Link Logic ---
 const showCopiedToast = ref(false)
 function copyPostLink() {
-  const url = `${window.location.origin}/#/thread/${route.params.id}#${props.post.id}`
+  // Local development
+  // const url = `${window.location.origin}/#/thread/${route.params.id}#${props.post.id}`
+  // Production
+  const url = `${window.location.href}/#${props.post.id}`
   navigator.clipboard.writeText(url)
   showCopiedToast.value = true
   setTimeout(() => { showCopiedToast.value = false }, 2000)
@@ -405,6 +415,15 @@ async function saveEdit(postId) {
 }
 
 const getInitials = (name) => name?.charAt(0)?.toUpperCase() || '?'
+
+const adminDisplayName = computed(() => {
+  const author = decryptUser(props.post.author)
+  const admin = props.store?.config?.admin
+  if (admin && author.email === admin.email) {
+    return `${admin.name} (${admin.title})`
+  }
+  return author.name
+})
 
 // Cleanup hover state on component unmount
 onUnmounted(() => {

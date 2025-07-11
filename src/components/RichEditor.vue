@@ -19,7 +19,12 @@ import OlIcon from '@/assets/rte-controls/ul.svg'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   placeholder: { type: String, default: 'Write something...' },
-  charLimit: { type: Number, default: 500 }
+  charLimit: { type: Number, default: 4000 },
+  /**
+   * maxHeight: Maximum height for the editor content area (e.g., '220px').
+   * Use a smaller value for replies, larger for new posts.
+   */
+  maxHeight: { type: String, default: '220px' }
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -74,7 +79,7 @@ onMounted(() => {
       if (plainText.value.length > charLimit.value) {
         // Remove extra characters
         const truncated = plainText.value.slice(0, charLimit.value)
-        editor.commands.setText(truncated)
+        editor.commands.setContent(truncated)
         plainText.value = truncated
         emit('update:modelValue', editor.getHTML())
       } else {
@@ -131,7 +136,7 @@ const toggleCodeBlock = () => editor.value.chain().focus().toggleCodeBlock().run
 </script>
 
 <template>
-  <div class="rich-editor-container border rounded-lg overflow-hidden">
+  <div class="rich-editor-container border rounded-lg overflow-hidden relative">
     <!-- Toolbar -->
     <div class="bg-gray-50 border-b px-3 py-2 flex flex-wrap items-center gap-1">
       <!-- Headings and Code Block -->
@@ -261,10 +266,12 @@ const toggleCodeBlock = () => editor.value.chain().focus().toggleCodeBlock().run
       </div>
     </div>
 
-    <!-- Editor Content -->
-    <EditorContent :editor="editor" />
+    <!-- Editor Content (scrollable area) -->
+    <div class="editor-scroll-area" :style="{ maxHeight: props.maxHeight }">
+      <EditorContent :editor="editor" />
+    </div>
     <!-- Character Count -->
-    <div class="flex justify-end px-3 pb-2 text-xs select-none">
+    <div class="char-count-sticky">
       <span :class="isOverLimit ? 'text-red-600 font-bold' : 'text-gray-400'">
         {{ charCount }} / {{ charLimit }}
       </span>
@@ -274,7 +281,13 @@ const toggleCodeBlock = () => editor.value.chain().focus().toggleCodeBlock().run
 
 <style scoped>
 .rich-editor-container {
-  background: white;
+  padding-bottom: 1rem;
+}
+
+.editor-scroll-area {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* max-height removed, now dynamic via prop */
 }
 
 .rich-editor-container :deep(.ProseMirror) {
@@ -372,5 +385,19 @@ const toggleCodeBlock = () => editor.value.chain().focus().toggleCodeBlock().run
 
 .toolbar-btn-error img {
   filter: brightness(0) saturate(100%) invert(1);
+}
+
+.char-count-sticky {
+  position: absolute;
+  width: 100%;
+  text-align: right;
+  right: 1rem;
+  bottom: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.85em;
+  pointer-events: none;
+  z-index: 10;
+  background: linear-gradient(0deg, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 1) 61%, rgba(255, 255, 255, 0) 100%);
 }
 </style>

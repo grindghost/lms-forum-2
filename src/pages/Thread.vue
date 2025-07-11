@@ -333,6 +333,9 @@ const threadAuthorEmail = computed(() => {
   }
   return ''
 })
+
+const editingPostId = ref(null) // Add this if not already present
+const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostModal.value || editingPostId.value !== null)
 </script>
 
 <template>
@@ -383,6 +386,8 @@ const threadAuthorEmail = computed(() => {
           :post="post"
           :threadData="threadData"
           :replyingTo="replyingTo"
+          :editingPostId="editingPostId"
+          :isAnyEditorOpen="isAnyEditorOpen"
           :newReply="newReply"
           :depth="post.depth"
           :renderPosts="renderPosts"

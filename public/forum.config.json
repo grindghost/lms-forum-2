@@ -1,6 +1,6 @@
 {
   "admin": {
-    "name": "Administrator",
+    "name": "Localhost Admin",
     "email": "admin@example.com",
     "title": "Forum Administrator"
   },

@@ -3,8 +3,9 @@
     <div v-if="show" class="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm z-30 flex items-center justify-center">
       <div class="bg-white rounded-lg p-6 w-full max-w-2xl shadow-lg relative">
         <h2 class="text-xl font-bold font-overpass mb-4">{{ $t('thread.postReply') }}</h2>
-        <component :is="RichEditor" v-model="content" :placeholder="$t('thread.writeMessage')" />
-
+        <div class="max-h-[350px] overflow-y-auto mb-4">
+          <component :is="RichEditor" v-model="content" :placeholder="$t('thread.writeMessage')" />
+        </div>
         <div class="flex justify-end gap-2 mt-4">
           <button class="btn btn-outline" @click="$emit('cancel')">
             {{ $t('thread.cancel') }}
