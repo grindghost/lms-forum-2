@@ -376,6 +376,7 @@ watch(
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
     <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <!-- Create Thread Section -->
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">
         <input
           v-model="newTitle"
@@ -387,8 +388,9 @@ watch(
         </button>
       </div>
 
-      <div class="flex items-center justify-between border-b pb-2">
-        <h1 class="text-2xl font-bold text-base-content font-overpass">
+      <!-- Header Section -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-2 gap-2">
+        <h1 class="text-xl sm:text-2xl font-bold text-base-content font-overpass">
           {{ $t('home.forumThreads') }}
         </h1>
         <div class="text-sm text-gray-500">
@@ -396,16 +398,17 @@ watch(
         </div>
       </div>
 
+      <!-- No Threads Message -->
       <div v-if="threads.length === 0" class="text-center text-gray-500 mt-8">
         {{ $t('home.noThreads') }}
       </div>
-      
 
-      <div class="grid gap-4">
+      <!-- Thread Cards Grid -->
+      <div class="grid gap-3 sm:gap-4">
         <div
           v-for="thread in threads"
           :key="thread.id"
-          class="rounded-lg bg-base-100 shadow hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer relative"
+          class="rounded-lg bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer relative overflow-hidden"
           :class="{
             'opacity-50': isDragging && draggedThread?.id === thread.id,
             'border-dashed border-primary bg-primary/5': draggedOverThread?.id === thread.id,
@@ -422,16 +425,18 @@ watch(
         >
           <!-- Subscribe Star -->
           <div v-if="isSubscribed(thread)" class="absolute top-2 right-2 z-10">
-            <div class="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
-              <span class="text-yellow-600 text-sm">⭐</span>
+            <div class="w-5 h-5 sm:w-6 sm:h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
+              <span class="text-yellow-600 text-xs sm:text-sm">⭐</span>
             </div>
           </div>
 
-          <div class="card-body pb-4">
-            <!-- Thread Title Section -->
-            <div class="flex items-start justify-between">
-              <div class="flex-1">
-                <div v-if="editingThreadId === thread.id" class="flex items-center gap-2" @click.stop>
+          <!-- Main Card Content -->
+          <div class="p-4 sm:p-6">
+            <!-- Thread Title and Badges Row -->
+            <div class="flex items-start justify-between gap-3 mb-3">
+              <div class="flex-1 min-w-0">
+                <!-- Edit Mode -->
+                <div v-if="editingThreadId === thread.id" class="flex flex-col sm:flex-row items-start sm:items-center gap-2" @click.stop>
                   <input
                     v-model="editingThreadTitle"
                     class="input input-bordered input-sm flex-1"
@@ -439,48 +444,62 @@ watch(
                     @keyup.esc="cancelEditThread"
                     ref="editInput"
                   />
-                  <button class="btn btn-sm btn-primary" @click="saveEditThread(thread.id)">
-                    {{ $t('home.save') }}
-                  </button>
-                  <button class="btn btn-sm btn-outline" @click="cancelEditThread">
-                    {{ $t('home.cancel') }}
-                  </button>
+                  <div class="flex gap-1">
+                    <button class="btn btn-sm btn-primary" @click="saveEditThread(thread.id)">
+                      {{ $t('home.save') }}
+                    </button>
+                    <button class="btn btn-sm btn-outline" @click="cancelEditThread">
+                      {{ $t('home.cancel') }}
+                    </button>
+                  </div>
                 </div>
-                <h2 v-else class="card-title font-overpass font-[400]">
-                  <div v-if="store.isAdmin()" class="mr-2 text-gray-400 cursor-grab active:cursor-grabbing" :title="$t('home.dragToReorder')">
+                
+                <!-- Display Mode -->
+                <div v-else class="flex items-start gap-2">
+                  <!-- Drag Handle (Admin Only) -->
+                  <div v-if="store.isAdmin()" class="text-gray-400 cursor-grab active:cursor-grabbing flex-shrink-0 text-xl" :title="$t('home.dragToReorder')">
                     ⋮⋮
                   </div>
-                  {{ thread.title }}
-                  <div class="badge badge-primary badge-outline">
-                    {{ thread.messageCount }} {{ $t('home.messages') }}
-                  </div>
-                  <div v-if="thread.readOnly" class="badge badge-warning badge-outline" title="Read-only thread">
-                    🔒
-                  </div>
-                </h2>
+                  
+                  <!-- Thread Title -->
+                  <h2 class="card-title font-overpass font-[400] text-base sm:text-lg leading-tight break-words mt-[0.3rem]">
+                    {{ thread.title }}
+                  </h2>
+                </div>
+              </div>
+              
+              <!-- Badges -->
+              <div class="flex sm:flex-row gap-1 sm:gap-2 flex-shrink-0">
+                <div class="badge badge-primary badge-outline text-xs">
+                  {{ thread.messageCount }} {{ $t('home.messages') }}
+                </div>
+                <div v-if="thread.readOnly" class="badge badge-warning badge-outline text-xs" title="Read-only thread">
+                  🔒
+                </div>
               </div>
             </div>
 
-            <div class="flex items-center text-sm text-gray-500 gap-3 mt-1">
-              <AvatarInitial :name="decryptUser(thread.author).name" />
-              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" />
-              <span>•</span>
-              <span>
+            <!-- Author and Date Info -->
+            <div class="flex items-center text-sm text-gray-500 gap-2 mb-2">
+              <AvatarInitial :name="decryptUser(thread.author).name" class="w-5 h-5 sm:w-6 sm:h-6" />
+              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" class="text-sm" />
+              <span class="hidden sm:inline">•</span>
+              <span class="text-xs sm:text-sm">
                 {{ formatThreadDate(thread.createdAt) }}
               </span>
             </div>
             
-            <!-- Last post info -->
-            <div v-if="getLastPostInfo(thread.id)" class="flex items-center text-xs text-gray-400 gap-2 mt-1">
+            <!-- Last Post Info -->
+            <div v-if="getLastPostInfo(thread.id)" class="flex flex-col sm:flex-row items-start sm:items-center text-xs text-gray-400 gap-1 mb-3">
               <span>{{ $t('home.lastPostBy') }}</span>
-              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" />
-              <span>•</span>
-              <span>{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
+              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" class="text-xs" />
+              <span class="hidden sm:inline">•</span>
+              <span class="text-xs">{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
             </div>
 
             <!-- Bottom Controls Row -->
-            <div class="flex items-center justify-between mt-4 pt-3 border-t border-base-200">
-              <!-- Subscribe Checkbox -->
+            <div class="flex flex-row justify-between gap-3 pt-3 border-t border-base-200">
+              <!-- Subscribe Section -->
               <div class="flex items-center gap-2" @click.stop>
                 <input
                   type="checkbox"
@@ -494,11 +513,11 @@ watch(
                 </label>
               </div>
 
-              <!-- Admin Controls Group -->
+              <!-- Admin Controls -->
               <div v-if="store.isAdmin()" class="flex items-center gap-2" @click.stop>
                 <!-- Read-only Toggle -->
-                <div class="flex items-center gap-2">
-                  <label class="label cursor-pointer gap-2">
+                <div class="flex items-center gap-1">
+                  <label class="label cursor-pointer gap-1">
                     <span class="label-text text-xs">{{ $t('home.readOnly') }}</span>
                     <input
                       type="checkbox"

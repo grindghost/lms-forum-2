@@ -68,7 +68,7 @@
                 <button class="btn btn-sm btn-outline" @click="cancelEdit">{{ $t('thread.cancel') }}</button>
               </div>
             </div>
-            <div v-else class="prose prose-sm max-w-none pb-2" v-html="sanitizeHTML(decryptText(post.content))"></div>
+            <div v-else class="prose prose-sm max-w-none" v-html="sanitizeHTML(decryptText(post.content))"></div>
           </template>
         </div>
 
