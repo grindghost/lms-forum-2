@@ -2,6 +2,17 @@ import { getFirebaseDB } from './_firebase'
 import { ref, push, serverTimestamp } from 'firebase-admin/database'
 
 export default async function handler(req, res) {
+
+    const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || []
+    const origin = req.headers.origin
+
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+    return res.status(403).json({ error: 'Forbidden: invalid origin' })
+    }
+
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+
   if (req.method !== 'POST') return res.status(405).end()
 
   try {
