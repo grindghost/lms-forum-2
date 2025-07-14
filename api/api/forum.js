@@ -62,11 +62,14 @@ export default async function handler(req, res) {
         case 'create-thread': {
           const { title, author, groupId } = req.body
           if (!title || !author || !groupId) return res.status(400).json({ error: 'Missing data' })
+          if (typeof author !== 'object' || !author.name || !author.email) {
+            return res.status(400).json({ error: 'Invalid author object' })
+          }
           const threadsRef = db.ref('threads')
           const newThread = await threadsRef.push({
             title,
             createdAt: Date.now(),
-            author: encryptText(author),
+            author: encryptText(JSON.stringify(author)),
             group: groupId,
             sortOrder: Date.now()
           })

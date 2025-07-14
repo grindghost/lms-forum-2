@@ -135,22 +135,22 @@ const reply = async (parentId = null) => {
 const likePostHandler = async (postId, currentLikes, likedBy = []) => {
   const idx = posts.value.findIndex(p => p.id === postId)
   if (idx === -1) return
-  const deterministicUserEmail = deterministicEncryptText(store.currentUser.email)
-  const hasLiked = likedBy.includes(deterministicUserEmail)
+  const userEmail = store.currentUser.email
+  const hasLiked = likedBy.includes(userEmail)
   // Optimistically update
   const oldLikes = posts.value[idx].likes
   const oldLikedBy = [...posts.value[idx].likedBy]
   if (hasLiked) {
     posts.value[idx].likes = oldLikes - 1
-    posts.value[idx].likedBy = oldLikedBy.filter(e => e !== deterministicUserEmail)
+    posts.value[idx].likedBy = oldLikedBy.filter(e => e !== userEmail)
   } else {
     posts.value[idx].likes = oldLikes + 1
-    posts.value[idx].likedBy = [...oldLikedBy, deterministicUserEmail]
+    posts.value[idx].likedBy = [...oldLikedBy, userEmail]
   }
   try {
     await likePost({
       postId,
-      userEmail: deterministicUserEmail,
+      userEmail,
       likedBy: posts.value[idx].likedBy,
       currentLikes: posts.value[idx].likes
     })

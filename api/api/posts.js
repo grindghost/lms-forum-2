@@ -44,7 +44,12 @@ export default async function handler(req, res) {
           const posts = Object.entries(allPosts)
             .map(([id, post]) => ({ id, ...post }))
             .filter(post => post.threadId === threadId)
-            .map(post => ({ ...post, content: post.content ? decryptText(post.content) : post.content, author: post.author ? safeParse(decryptText(post.author)) : post.author }));
+            .map(post => ({
+              ...post,
+              content: post.content ? decryptText(post.content) : post.content,
+              author: post.author ? safeParse(decryptText(post.author)) : post.author,
+              likedBy: Array.isArray(post.likedBy) ? post.likedBy : []
+            }));
           return res.status(200).json(posts)
         }
         case 'get-all-posts': {
@@ -52,7 +57,12 @@ export default async function handler(req, res) {
           const snapshot = await postsRef.get()
           const allPosts = snapshot.val() || {}
           const posts = Object.entries(allPosts).map(([id, post]) => ({ id, ...post }))
-            .map(post => ({ ...post, content: post.content ? decryptText(post.content) : post.content, author: post.author ? safeParse(decryptText(post.author)) : post.author }));
+            .map(post => ({
+              ...post,
+              content: post.content ? decryptText(post.content) : post.content,
+              author: post.author ? safeParse(decryptText(post.author)) : post.author,
+              likedBy: Array.isArray(post.likedBy) ? post.likedBy : []
+            }));
           return res.status(200).json(posts)
         }
         default:
@@ -77,22 +87,25 @@ export default async function handler(req, res) {
           return res.status(200).json({ id: newPost.key })
         }
         case 'like-post': {
-          const { postId, userEmail, likedBy, currentLikes } = req.body
-          if (!postId || !userEmail || !Array.isArray(likedBy)) return res.status(400).json({ error: 'Missing data' })
-          const postRef = db.ref(`posts/${postId}`)
-          const hasLiked = likedBy.includes(userEmail)
+          const { postId, userEmail } = req.body;
+          if (!postId || !userEmail) return res.status(400).json({ error: 'Missing data' });
+          const postRef = db.ref(`posts/${postId}`);
+          const postSnap = await postRef.get();
+          const post = postSnap.val();
+          let likedBy = Array.isArray(post?.likedBy) ? post.likedBy : [];
+          let likes = typeof post?.likes === 'number' ? post.likes : 0;
+          const hasLiked = likedBy.includes(userEmail);
+
           if (hasLiked) {
-            await postRef.update({
-              likes: Math.max(0, (currentLikes || 1) - 1),
-              likedBy: likedBy.filter(email => email !== userEmail)
-            })
+            likedBy = likedBy.filter(email => email !== userEmail);
+            likes = Math.max(0, likes - 1);
           } else {
-            await postRef.update({
-              likes: (currentLikes || 0) + 1,
-              likedBy: [...likedBy, userEmail]
-            })
+            likedBy = [...likedBy, userEmail];
+            likes = likes + 1;
           }
-          return res.status(200).json({ success: true })
+
+          await postRef.update({ likes, likedBy });
+          return res.status(200).json({ success: true, likes, likedBy });
         }
         case 'soft-delete-post': {
           const { postId, content } = req.body
