@@ -28,6 +28,8 @@ function deterministicEncryptText(text) {
     throw new Error('deterministicEncryptText: input must be a non-empty string');
   }
   const key = CryptoJS.enc.Utf8.parse(SECRET);
+  console.log('key', key)
+  
   const encrypted = CryptoJS.AES.encrypt(text, key, {
     mode: CryptoJS.mode.ECB,
     padding: CryptoJS.pad.Pkcs7

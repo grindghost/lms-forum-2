@@ -9,24 +9,24 @@ function safeParse(str) {
 
 export default async function handler(req, res) {
 
-    // CORS
-    const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || []
-    const origin = req.headers.origin
+  // CORS
+  const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || []
+  const origin = req.headers.origin
 
-    if (!ALLOWED_ORIGINS.includes(origin)) {
-      return res.status(403).json({ error: 'Forbidden: invalid origin' })
-    }
+  if (!ALLOWED_ORIGINS.includes(origin)) {
+    return res.status(403).json({ error: 'Forbidden: invalid origin' })
+  }
 
-    if (req.method === 'OPTIONS') {
-      res.setHeader('Access-Control-Allow-Origin', origin)
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-      res.setHeader('Vary', 'Origin')
-      return res.status(200).end()
-    }
+  // Set CORS headers for all responses
+  res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Vary', 'Origin')
 
-    res.setHeader('Access-Control-Allow-Origin', origin)
-    res.setHeader('Vary', 'Origin')
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end()
+  }
 
   const db = getFirebaseDB()
   const { action } = req.query
@@ -100,6 +100,7 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true })
         }
         case 'toggle-subscription': {
+          console.log('TOGGLE SUBSCRIPTION HIT', req.body);
           const { threadId, userEmail } = req.body
           if (!threadId || !userEmail) return res.status(400).json({ error: 'Missing threadId or userEmail' })
           const threadRef = db.ref(`threads/${threadId}/subscribers`)
@@ -117,8 +118,11 @@ export default async function handler(req, res) {
           return res.status(200).json({ subscribers })
         }
         case 'update-subscribers': {
+          console.log('UPDATE SUBSCRIPTION HIT', req.body);
+          
           const { threadId, subscribers } = req.body
           if (!threadId || !Array.isArray(subscribers)) return res.status(400).json({ error: 'Missing threadId or subscribers' })
+
           // Store all subscribers as plain emails for easier inspection
           await db.ref(`threads/${threadId}/subscribers`).set(subscribers)
           return res.status(200).json({ subscribers })
