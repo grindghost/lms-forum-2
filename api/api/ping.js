@@ -1,5 +1,4 @@
 import { getFirebaseDB } from '../_firebase.js'
-// import * as adminDB from 'firebase-admin/database'
 
 export default async function handler(req, res) {
 
@@ -12,7 +11,6 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Vary', 'Origin')
 
-
     const db = getFirebaseDB()
     const postsRef = db.ref('posts')
 
@@ -21,5 +19,4 @@ export default async function handler(req, res) {
     const data = snapshot.val()
 
     return res.status(200).json({ posts: data })
-    // res.status(200).json({ message: 'Hello from your local Vercel API!' })
 }

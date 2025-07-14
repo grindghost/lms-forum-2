@@ -176,6 +176,7 @@
             :adminDeletePost="adminDeletePost"
             :isAnyEditorOpen="isAnyEditorOpen"
             :editingPostId="editingPostId"
+            :updatePost="updatePost"
             @update:newReply="emit('update:newReply', $event)"
           />
         </div>
@@ -200,8 +201,6 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { formatDate } from '@/utils/dateFormat'
 import { decryptUser } from '@/utils/encryption'
-import { db } from '@/firebase'
-import { ref as dbRef, update, serverTimestamp } from 'firebase/database'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import CustomToast from '@/components/CustomToast.vue'
@@ -235,7 +234,8 @@ const props = defineProps({
   class: String,
   isAnyEditorOpen: Boolean,
   editingPostId: [String, Number, null],
-  charLimit: Number
+  charLimit: Number,
+  updatePost: Function
 })
 
 const emit = defineEmits(['update:newReply'])
@@ -402,10 +402,7 @@ function cancelEdit() {
 
 async function saveEdit(postId) {
   const encrypted = props.encryptText(props.sanitizeHTML(editingContent.value))
-  await update(dbRef(db, `posts/${postId}`), {
-    content: encrypted,
-    createdAt: serverTimestamp()
-  })
+  await props.updatePost(postId, encrypted)
   editingPostId.value = null
   editingContent.value = ''
 }

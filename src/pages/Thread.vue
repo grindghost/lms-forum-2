@@ -1,8 +1,6 @@
 <script setup>
 import { onMounted, ref, computed, watch, defineComponent, h, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { db } from '@/firebase'
-import { ref as dbRef, onValue, push, serverTimestamp, update, get, remove } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
 import { decryptText, encryptText, deterministicEncryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { sanitizeHTML } from '@/utils/sanitize'
@@ -14,6 +12,14 @@ import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import NewPostModal from '@/components/NewPostModal.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
+import { getThread } from '@/services/getThread'
+import { getPosts } from '@/services/getPosts'
+import { createPost } from '@/services/createPost'
+import { likePost } from '@/services/likePost'
+import { softDeletePost } from '@/services/softDeletePost'
+import { restorePost } from '@/services/restorePost'
+import { adminDeletePost } from '@/services/adminDeletePost'
+import { updatePost } from '@/services/updatePost'
 
 const { t: $t, locale } = useI18n()
 
@@ -55,23 +61,15 @@ const checkPostExists = (postId) => {
 }
 
 
-const fetchThread = () => {
-  onValue(dbRef(db, `threads/${threadId}`), (snapshot) => {
-    const thread = snapshot.val()
-    threadData.value = thread
-    threadTitle.value = thread?.title || $t('thread.untitled')
-  })
+const fetchThread = async () => {
+  const data = await getThread(threadId)
+  threadData.value = data
+  threadTitle.value = data?.title || $t('thread.untitled')
 }
 
-const fetchPosts = () => {
-  onValue(dbRef(db, 'posts'), (snapshot) => {
-    const all = snapshot.val() || {}
-
-    posts.value = Object.entries(all)
-      .map(([id, post]) => ({ id, ...post }))
-      .filter((p) => String(p.threadId) === String(threadId))
-      .sort((a, b) => a.createdAt - b.createdAt)
-  })
+const fetchPosts = async () => {
+  const all = await getPosts(threadId)
+  posts.value = all.sort((a, b) => a.createdAt - b.createdAt)
 }
 
 const showReplyEditor = (postId) => {
@@ -86,140 +84,49 @@ const cancelReply = () => {
 
 const reply = async (parentId = null) => {
   if (!newReply.value.trim()) return
-
   const encrypted = encryptText(sanitizeHTML(newReply.value))
   const encryptedAuthor = encryptUser(store.currentUser)
-
-  const postRef = await push(dbRef(db, 'posts'), {
+  await createPost({
     threadId,
-    parentId: parentId ?? null, // ensure null, not undefined
+    parentId: parentId ?? null,
     content: encrypted,
-    author: encryptedAuthor,
-    createdAt: serverTimestamp(),
-    likes: 0,
-    likedBy: [],
-    deleted: false
+    author: encryptedAuthor
   })
-  
-  lastCreatedPostId.value = postRef.key
-  console.log('Last created post ID:', lastCreatedPostId.value)
-
+  lastCreatedPostId.value = null // Will be set after fetch
   newReply.value = ''
   replyingTo.value = null
+  await fetchPosts()
 }
 
-const likePost = (postId, currentLikes, likedBy = []) => {
+const likePostHandler = async (postId, currentLikes, likedBy = []) => {
   const deterministicUserEmail = deterministicEncryptText(store.currentUser.email)
-  const hasLiked = likedBy.includes(deterministicUserEmail)
-  const postRef = dbRef(db, `posts/${postId}`)
-  if (hasLiked) {
-    // Remove like
-    update(postRef, {
-      likes: Math.max(0, currentLikes - 1),
-      likedBy: likedBy.filter(email => email !== deterministicUserEmail)
-    })
-  } else {
-    // Add like
-    update(postRef, {
-      likes: (currentLikes || 0) + 1,
-      likedBy: [...(likedBy || []), deterministicUserEmail]
-    })
-  }
+  await likePost({
+    postId,
+    userEmail: deterministicUserEmail,
+    likedBy,
+    currentLikes
+  })
+  await fetchPosts()
 }
 
-const deletePost = async (postId) => {
-  try {
-    const postRef = dbRef(db, `posts/${postId}`)
-    const snapshot = await get(postRef)
-    const post = snapshot.val()
-    
-    if (post && !post.deleted) {
-      await update(postRef, {
-        originalContent: post.content, // Store original content
-        content: encryptText('[deleted]'),
-        deleted: true
-      })
-    }
-  } catch (error) {
-    console.error('Error deleting post:', error)
-  }
+const deletePost = async (postId, content) => {
+  await softDeletePost({ postId, content })
+  await fetchPosts()
 }
 
-const restorePost = async (postId) => {
-  try {
-    // Get the current post data
-    const postRef = dbRef(db, `posts/${postId}`)
-    const snapshot = await get(postRef)
-    const post = snapshot.val()
-    
-    console.log('Restoring post:', postId, post) // Debug log
-    
-    if (post && post.deleted) {
-      // If we have original content, restore it
-      if (post.originalContent) {
-        console.log('Restoring with original content')
-        await update(postRef, {
-          content: post.originalContent,
-          deleted: false,
-          originalContent: null
-        })
-      } else {
-        // For posts deleted before this feature, check if current content is not the standard deleted message
-        const currentContent = decryptText(post.content)
-        if (currentContent !== '[deleted]') {
-          console.log('Restoring with current content (not standard deleted message)')
-          await update(postRef, {
-            deleted: false
-          })
-        } else {
-          console.log('Setting placeholder content for old deleted post')
-          await update(postRef, {
-            content: encryptText('[Content was deleted]'),
-            deleted: false
-          })
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error restoring post:', error)
-  }
+const restorePostHandler = async (postId, originalContent) => {
+  await restorePost({ postId, originalContent })
+  await fetchPosts()
 }
 
-// Admin function to permanently delete a post and all its replies
-const adminDeletePost = async (postId) => {
-  try {
-    // Get all posts to find replies
-    const postsSnapshot = await get(dbRef(db, 'posts'))
-    const allPosts = postsSnapshot.val() || {}
-    
-    // Find all posts that need to be deleted (the post and all its replies)
-    const postsToDelete = new Set()
-    const findReplies = (parentId) => {
-      Object.entries(allPosts).forEach(([id, post]) => {
-        if (post.parentId === parentId) {
-          postsToDelete.add(id)
-          findReplies(id) // Recursively find replies to replies
-        }
-      })
-    }
-    
-    // Add the main post and find all its replies
-    postsToDelete.add(postId)
-    findReplies(postId)
-    
-    console.log('Deleting posts:', Array.from(postsToDelete))
-    
-    // Delete all posts in parallel
-    const deletePromises = Array.from(postsToDelete).map(id => 
-      remove(dbRef(db, `posts/${id}`))
-    )
-    
-    await Promise.all(deletePromises)
-    console.log('Successfully deleted', postsToDelete.size, 'posts')
-    
-  } catch (error) {
-    console.error('Error deleting post and replies:', error)
-  }
+const adminDeletePostHandler = async (postId) => {
+  await adminDeletePost({ postId })
+  await fetchPosts()
+}
+
+const updatePostHandler = async (postId, content) => {
+  await updatePost({ postId, content })
+  await fetchPosts()
 }
 
 const nestedPosts = computed(() => {
@@ -291,18 +198,18 @@ const renderPosts = (parentId = null, depth = 0) => {
   }))
 }
 
-onMounted(() => {
-  fetchThread()
-  fetchPosts()
+onMounted(async () => {
+  await fetchThread()
+  await fetchPosts()
 })
 
 // Watch for route changes and re-fetch data
 watch(
   () => route.params.id,
-  (newId, oldId) => {
+  async (newId, oldId) => {
     if (newId !== oldId) {
-      fetchThread()
-      fetchPosts()
+      await fetchThread()
+      await fetchPosts()
     }
   }
 )
@@ -412,9 +319,9 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
           :depth="post.depth"
           :renderPosts="renderPosts"
           :showReplyEditor="showReplyEditor"
-          :likePost="likePost"
+          :likePost="likePostHandler"
           :deletePost="deletePost"
-          :restorePost="restorePost"
+          :restorePost="restorePostHandler"
           :reply="reply"
           :cancelReply="cancelReply"
           :store="store"
@@ -423,7 +330,8 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
           :decryptText="decryptText"
           :encryptText="encryptText"
           :deterministicEncryptText="deterministicEncryptText"
-          :adminDeletePost="adminDeletePost"
+          :adminDeletePost="adminDeletePostHandler"
+          :updatePost="updatePostHandler"
           :charLimit="store.charLimit"
           @update:newReply="val => newReply = val"
         />
