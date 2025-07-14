@@ -1,6 +1,7 @@
 <template>
   <div class="min-h-screen flex flex-col">
     <Header />
+    <button @click="pingCallback" class="btn btn-primary z-30">hey</button>
     <!-- Main content with top padding to avoid header overlap -->
     <div class="flex-1 flex flex-col">
       <router-view />
@@ -17,6 +18,17 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useForumStore } from '@/stores/forumStore'
 import { setLocale } from '@/i18n'
+
+import { ping } from '/src/services/ping'
+
+const pingCallback = async () => {
+  try {
+    const response = await ping()
+    console.log('Ping response:', response)
+  } catch (error) {
+    console.error('Ping failed:', error)
+  }
+}
 
 const store = useForumStore()
 const router = useRouter()

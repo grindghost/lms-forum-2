@@ -3,6 +3,7 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app'
 import { getDatabase } from 'firebase-admin/database'
 
+
 let dbInstance = null
 
 export function getFirebaseDB() {
