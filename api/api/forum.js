@@ -1,7 +1,7 @@
 import { getFirebaseDB } from '../_firebase.js'
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { encryptText, decryptText } = require('../utils/encryption.cjs');
+const { encryptText, decryptText, deterministicEncryptText } = require('../utils/encryption.cjs');
 
 function safeParse(str) {
   try { return JSON.parse(str); } catch { return { name: '', email: '' }; }
@@ -106,12 +106,12 @@ export default async function handler(req, res) {
           const snap = await threadRef.get()
           let subscribers = snap.val() || []
           if (!Array.isArray(subscribers)) subscribers = []
-          if (subscribers.includes(encryptText(userEmail))) {
+          if (subscribers.includes(userEmail)) {
             // Unsubscribe
-            subscribers = subscribers.filter(e => e !== encryptText(userEmail))
+            subscribers = subscribers.filter(e => e !== userEmail)
           } else {
             // Subscribe
-            subscribers.push(encryptText(userEmail))
+            subscribers.push(userEmail)
           }
           await threadRef.set(subscribers)
           return res.status(200).json({ subscribers })
@@ -119,10 +119,9 @@ export default async function handler(req, res) {
         case 'update-subscribers': {
           const { threadId, subscribers } = req.body
           if (!threadId || !Array.isArray(subscribers)) return res.status(400).json({ error: 'Missing threadId or subscribers' })
-          // Encrypt all subscribers before saving
-          const encryptedSubscribers = subscribers.map(email => encryptText(email))
-          await db.ref(`threads/${threadId}/subscribers`).set(encryptedSubscribers)
-          return res.status(200).json({ subscribers: encryptedSubscribers })
+          // Store all subscribers as plain emails for easier inspection
+          await db.ref(`threads/${threadId}/subscribers`).set(subscribers)
+          return res.status(200).json({ subscribers })
         }
         // Add more thread actions here (subscribe, reorder, etc.)
         default:
