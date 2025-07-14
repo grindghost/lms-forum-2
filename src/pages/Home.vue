@@ -66,21 +66,26 @@ function getLastPostInfo(threadId) {
 // Subscribe logic
 function isSubscribed(thread) {
   if (!thread.subscribers) return false
-  return thread.subscribers.some(sub => sub.email === store.currentUser.email)
+  return thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
 }
 async function toggleSubscribe(thread) {
   if (!thread.subscribers) thread.subscribers = []
   // Check if already subscribed (by email)
-  const isSubscribedNow = thread.subscribers.some(sub => sub.email === store.currentUser.email)
+  const isSubscribedNow = thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
   // Optimistically update
   const oldSubscribers = [...thread.subscribers]
   if (isSubscribedNow) {
-    thread.subscribers = thread.subscribers.filter(sub => sub.email !== store.currentUser.email)
+    thread.subscribers = thread.subscribers.filter(sub => (typeof sub === 'string' ? sub : sub.email) !== store.currentUser.email)
   } else {
-    thread.subscribers = [...thread.subscribers, store.currentUser]
+    thread.subscribers = [...thread.subscribers, store.currentUser.email]
   }
+  // Remove empty strings before sending to backend
+  thread.subscribers = thread.subscribers.filter(email => !!email)
   try {
-    const res = await updateThreadSubscribers({ threadId: thread.id, subscribers: thread.subscribers })
+    const res = await updateThreadSubscribers({
+      threadId: thread.id,
+      subscribers: thread.subscribers
+    })
     thread.subscribers = res.subscribers
   } catch (e) {
     thread.subscribers = oldSubscribers
