@@ -321,6 +321,12 @@ const fetchThreadsAndPosts = async () => {
     acc[post.id] = post
     return acc
   }, {})
+  // Set messageCount for each thread
+  threads.value.forEach(thread => {
+    thread.messageCount = Object.values(posts.value).filter(
+      p => p.threadId === thread.id && !p.deleted
+    ).length;
+  });
   isLoading.value = false
 }
 
