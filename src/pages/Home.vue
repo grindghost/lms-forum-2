@@ -15,6 +15,8 @@ import { deleteThread } from '@/services/deleteThread'
 import { updateSortOrder } from '@/services/updateSortOrder'
 import { getAllPosts } from '@/services/getPosts'
 import YellowSpinner from '@/components/YellowSpinner.vue'
+import ErrorToast from '@/components/ErrorToast.vue'
+import { updateThreadSubscribers } from '@/services/toggleThreadSubscription'
 
 const { t: $t, locale } = useI18n()
 
@@ -23,6 +25,8 @@ const newTitle = ref('')
 const threads = ref([])
 const router = useRouter()
 const isLoading = ref(true)
+const showErrorToast = ref(false)
+const errorMessage = ref('')
 
 // Computed property for formatted dates that reacts to locale changes
 const formatThreadDate = (date) => {
@@ -43,6 +47,7 @@ const draggedThread = ref(null)
 const draggedOverThread = ref(null)
 const isDragging = ref(false)
 const dropPosition = ref(null) // 'above' or 'below'
+const previousThreads = ref([])
 
 // Track posts for last poster info
 const posts = ref({})
@@ -62,21 +67,48 @@ function getLastPostInfo(threadId) {
 // Subscribe logic
 function isSubscribed(thread) {
   if (!thread.subscribers) return false
-  return thread.subscribers.includes(store.currentUser.email)
+  // Decrypt each subscriber and compare email
+  return thread.subscribers.some(sub => {
+    try {
+      return decryptUser(sub).email === store.currentUser.email
+    } catch {
+      return false
+    }
+  })
 }
 async function toggleSubscribe(thread) {
-  // This logic needs to be updated to use a service method
-  // For now, it will be a placeholder or require a new service method
-  console.warn('toggleSubscribe is a placeholder and needs a service method')
-  // Example: const threadRef = dbRef(db, `threads/${thread.id}`)
-  // const subscribers = Array.isArray(thread.subscribers) ? [...thread.subscribers] : []
-  // const idx = subscribers.indexOf(store.currentUser.email)
-  // if (idx === -1) {
-  //   subscribers.push(store.currentUser.email)
-  // } else {
-  //   subscribers.splice(idx, 1)
-  // }
-  // await update(threadRef, { subscribers })
+  if (!thread.subscribers) thread.subscribers = []
+  const encryptedCurrentUser = encryptUser(store.currentUser)
+  // Check if already subscribed (by email)
+  const isSubscribedNow = thread.subscribers.some(sub => {
+    try {
+      return decryptUser(sub).email === store.currentUser.email
+    } catch {
+      return false
+    }
+  })
+  // Optimistically update
+  const oldSubscribers = [...thread.subscribers]
+  if (isSubscribedNow) {
+    thread.subscribers = thread.subscribers.filter(sub => {
+      try {
+        return decryptUser(sub).email !== store.currentUser.email
+      } catch {
+        return true
+      }
+    })
+  } else {
+    thread.subscribers = [...thread.subscribers, encryptedCurrentUser]
+  }
+  try {
+    const res = await updateThreadSubscribers({ threadId: thread.id, subscribers: thread.subscribers })
+    thread.subscribers = res.subscribers
+  } catch (e) {
+    thread.subscribers = oldSubscribers
+    errorMessage.value = $t('home.subscribeError') || 'Failed to update subscription'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 // Load config
@@ -92,14 +124,40 @@ const goToThread = (id) => {
 // Create new thread
 const createThreadHandler = async () => {
   if (!newTitle.value.trim() || !store.groupId) return
+  const tempId = 'temp-' + Date.now()
   const encryptedAuthor = encryptUser(store.currentUser)
-  await createThread({
+  // Optimistically add thread with all required fields
+  const optimisticThread = {
+    id: tempId,
     title: newTitle.value,
     author: encryptedAuthor,
-    groupId: store.groupId
-  })
+    groupId: store.groupId,
+    messageCount: 0,
+    createdAt: Date.now(),
+    sortOrder: threads.value.length ? Math.max(...threads.value.map(t => t.sortOrder || 0)) + 1000 : 1000,
+    subscribers: [],
+    readOnly: false
+  }
+  threads.value.unshift(optimisticThread)
+  const oldTitle = newTitle.value
   newTitle.value = ''
-  await fetchThreadsAndPosts()
+  try {
+    const created = await createThread({
+      title: oldTitle,
+      author: encryptedAuthor,
+      groupId: store.groupId
+    })
+    // Merge real thread data with optimistic one to avoid missing fields
+    const idx = threads.value.findIndex(t => t.id === tempId)
+    if (idx !== -1) {
+      threads.value[idx] = { ...threads.value[idx], ...created }
+    }
+  } catch (e) {
+    threads.value = threads.value.filter(t => t.id !== tempId)
+    errorMessage.value = $t('home.createThreadError') || 'Failed to create thread'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 // Edit thread functions
@@ -115,10 +173,22 @@ const cancelEditThread = () => {
 
 const saveEditThread = async (threadId) => {
   if (!editingThreadTitle.value.trim()) return
-  await updateThread({ id: threadId, title: editingThreadTitle.value.trim() })
+  const idx = threads.value.findIndex(t => t.id === threadId)
+  if (idx === -1) return
+  const oldTitle = threads.value[idx].title
+  // Optimistically update
+  threads.value[idx].title = editingThreadTitle.value.trim()
   editingThreadId.value = null
   editingThreadTitle.value = ''
-  await fetchThreadsAndPosts()
+  try {
+    await updateThread({ id: threadId, title: threads.value[idx].title })
+  } catch (e) {
+    // Revert
+    threads.value[idx].title = oldTitle
+    errorMessage.value = $t('home.editThreadError') || 'Failed to edit thread'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const toggleReadOnly = async (threadId, isReadOnly) => {
@@ -179,25 +249,33 @@ const handleDrop = async (e, targetThread) => {
   const targetThreadId = targetThread.id
   if (draggedThreadId === targetThreadId) return
   try {
+    // Save previous state for revert
+    previousThreads.value = threads.value.map(t => ({ ...t }))
     const currentThreads = [...threads.value]
     const draggedIndex = currentThreads.findIndex(t => t.id === draggedThreadId)
     const targetIndex = currentThreads.findIndex(t => t.id === targetThreadId)
     if (draggedIndex === -1 || targetIndex === -1) return
     const newThreads = [...currentThreads]
-    const [draggedThread] = newThreads.splice(draggedIndex, 1)
+    const [draggedThreadObj] = newThreads.splice(draggedIndex, 1)
     let insertIndex = dropPosition.value === 'above' ? targetIndex : targetIndex + 1
     if (draggedIndex < targetIndex) insertIndex -= 1
-    newThreads.splice(insertIndex, 0, draggedThread)
+    newThreads.splice(insertIndex, 0, draggedThreadObj)
     const sortOrderStep = 1000
     const updates = {}
     newThreads.forEach((thread, index) => {
       const newSortOrder = (index + 1) * sortOrderStep
       updates[`threads/${thread.id}/sortOrder`] = newSortOrder
+      thread.sortOrder = newSortOrder
     })
+    // Optimistically update UI
+    threads.value = newThreads
     await updateSortOrder({ updates })
-    await fetchThreadsAndPosts()
   } catch (error) {
-    console.error('Error reordering threads:', error)
+    // Revert UI
+    threads.value = previousThreads.value.map(t => ({ ...t }))
+    errorMessage.value = $t('home.sortOrderError') || 'Failed to update sort order'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
   } finally {
     draggedThread.value = null
     draggedOverThread.value = null
@@ -228,10 +306,21 @@ const cancelDeleteThread = () => {
 // Rename local deleteThread function to handleDeleteThread
 const handleDeleteThread = async () => {
   if (!threadToDelete.value) return
-  await deleteThread({ id: threadToDelete.value.id })
+  // Optimistically remove thread
+  const deletedId = threadToDelete.value.id
+  const previous = threads.value.map(t => ({ ...t }))
+  threads.value = threads.value.filter(t => t.id !== deletedId)
   showDeleteConfirm.value = false
   threadToDelete.value = null
-  await fetchThreadsAndPosts()
+  try {
+    await deleteThread({ id: deletedId })
+  } catch (e) {
+    // Revert UI
+    threads.value = previous
+    errorMessage.value = $t('home.deleteThreadError') || 'Failed to delete thread'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 // FETCH THREADS AND POSTS
@@ -265,6 +354,7 @@ watch(
 
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
+    <ErrorToast :show="showErrorToast" :message="errorMessage" />
     <YellowSpinner v-if="isLoading" />
     <main v-else class="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <!-- Create Thread Section -->

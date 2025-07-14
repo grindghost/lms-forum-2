@@ -42,6 +42,10 @@ const showDeletedPostToast = ref(false)
 
 const lastCreatedPostId = ref(null)
 
+const showErrorToast = ref(false)
+const errorMessage = ref('')
+const previousPosts = ref([])
+
 const openNewPostModal = () => {
   replyingTo.value = null
   showNewPostModal.value = true
@@ -88,34 +92,93 @@ const cancelReply = () => {
 
 const reply = async (parentId = null) => {
   if (!newReply.value.trim()) return
+  const tempId = 'temp-' + Date.now()
   const encrypted = encryptText(sanitizeHTML(newReply.value))
   const encryptedAuthor = encryptUser(store.currentUser)
-  await createPost({
+  // Optimistically add post
+  const optimisticPost = {
+    id: tempId,
     threadId,
     parentId: parentId ?? null,
     content: encrypted,
-    author: encryptedAuthor
-  })
-  lastCreatedPostId.value = null // Will be set after fetch
+    author: encryptedAuthor,
+    createdAt: Date.now(),
+    deleted: false,
+    likes: 0,
+    likedBy: [],
+    updatedAt: Date.now()
+  }
+  posts.value.push(optimisticPost)
+  lastCreatedPostId.value = tempId
+  const oldReply = newReply.value
   newReply.value = ''
   replyingTo.value = null
-  await fetchPosts()
+  try {
+    const created = await createPost({
+      threadId,
+      parentId: parentId ?? null,
+      content: encrypted,
+      author: encryptedAuthor
+    })
+    // Merge real post data with optimistic one
+    const idx = posts.value.findIndex(p => p.id === tempId)
+    if (idx !== -1) {
+      posts.value[idx] = { ...posts.value[idx], ...created }
+      lastCreatedPostId.value = posts.value[idx].id
+    }
+  } catch (e) {
+    posts.value = posts.value.filter(p => p.id !== tempId)
+    errorMessage.value = $t('thread.createPostError') || 'Failed to create post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const likePostHandler = async (postId, currentLikes, likedBy = []) => {
+  const idx = posts.value.findIndex(p => p.id === postId)
+  if (idx === -1) return
   const deterministicUserEmail = deterministicEncryptText(store.currentUser.email)
-  await likePost({
-    postId,
-    userEmail: deterministicUserEmail,
-    likedBy,
-    currentLikes
-  })
-  await fetchPosts()
+  const hasLiked = likedBy.includes(deterministicUserEmail)
+  // Optimistically update
+  const oldLikes = posts.value[idx].likes
+  const oldLikedBy = [...posts.value[idx].likedBy]
+  if (hasLiked) {
+    posts.value[idx].likes = oldLikes - 1
+    posts.value[idx].likedBy = oldLikedBy.filter(e => e !== deterministicUserEmail)
+  } else {
+    posts.value[idx].likes = oldLikes + 1
+    posts.value[idx].likedBy = [...oldLikedBy, deterministicUserEmail]
+  }
+  try {
+    await likePost({
+      postId,
+      userEmail: deterministicUserEmail,
+      likedBy: posts.value[idx].likedBy,
+      currentLikes: posts.value[idx].likes
+    })
+  } catch (e) {
+    posts.value[idx].likes = oldLikes
+    posts.value[idx].likedBy = oldLikedBy
+    errorMessage.value = $t('thread.likePostError') || 'Failed to like post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const deletePost = async (postId, content) => {
-  await softDeletePost({ postId, content })
-  await fetchPosts()
+  const idx = posts.value.findIndex(p => p.id === postId)
+  if (idx === -1) return
+  const oldDeleted = posts.value[idx].deleted
+  // Optimistically mark as deleted
+  posts.value[idx].deleted = true
+  try {
+    await softDeletePost({ postId, content })
+  } catch (e) {
+    posts.value[idx].deleted = oldDeleted
+    errorMessage.value = $t('thread.deletePostError') || 'Failed to delete post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const restorePostHandler = async (postId, originalContent) => {
@@ -129,8 +192,19 @@ const adminDeletePostHandler = async (postId) => {
 }
 
 const updatePostHandler = async (postId, content) => {
-  await updatePost({ postId, content })
-  await fetchPosts()
+  const idx = posts.value.findIndex(p => p.id === postId)
+  if (idx === -1) return
+  const oldContent = posts.value[idx].content
+  // Optimistically update
+  posts.value[idx].content = content
+  try {
+    await updatePost({ postId, content })
+  } catch (e) {
+    posts.value[idx].content = oldContent
+    errorMessage.value = $t('thread.editPostError') || 'Failed to edit post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const nestedPosts = computed(() => {
@@ -271,6 +345,7 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
 
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16">
+    <ErrorToast :show="showErrorToast" :message="errorMessage" />
     <YellowSpinner v-if="isLoading" />
     <div v-else class="max-w-5xl mx-auto px-4">
       <!-- Thread Header -->

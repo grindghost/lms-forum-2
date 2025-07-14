@@ -402,7 +402,7 @@ function cancelEdit() {
 
 async function saveEdit(postId) {
   const encrypted = props.encryptText(props.sanitizeHTML(editingContent.value))
-  await props.updatePost(postId, encrypted)
+  props.updatePost(postId, encrypted) // Don't await, exit edit mode immediately
   editingPostId.value = null
   editingContent.value = ''
 }

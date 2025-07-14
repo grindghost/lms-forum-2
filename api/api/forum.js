@@ -65,9 +65,15 @@ export default async function handler(req, res) {
           return res.status(200).json({ id: newThread.key })
         }
         case 'update-thread': {
-          const { id, title } = req.body
-          if (!id || !title) return res.status(400).json({ error: 'Missing thread id or title' })
-          await db.ref(`threads/${id}`).update({ title })
+          const { id, title, readOnly } = req.body
+          if (!id) return res.status(400).json({ error: 'Missing thread id' })
+          const updateData = {}
+          if (title !== undefined) updateData.title = title
+          if (readOnly !== undefined) updateData.readOnly = readOnly
+          if (Object.keys(updateData).length === 0) {
+            return res.status(400).json({ error: 'No fields to update' })
+          }
+          await db.ref(`threads/${id}`).update(updateData)
           return res.status(200).json({ success: true })
         }
         case 'delete-thread': {
@@ -81,6 +87,29 @@ export default async function handler(req, res) {
           if (!updates || typeof updates !== 'object') return res.status(400).json({ error: 'Missing or invalid updates' })
           await db.ref().update(updates)
           return res.status(200).json({ success: true })
+        }
+        case 'toggle-subscription': {
+          const { threadId, userEmail } = req.body
+          if (!threadId || !userEmail) return res.status(400).json({ error: 'Missing threadId or userEmail' })
+          const threadRef = db.ref(`threads/${threadId}/subscribers`)
+          const snap = await threadRef.get()
+          let subscribers = snap.val() || []
+          if (!Array.isArray(subscribers)) subscribers = []
+          if (subscribers.includes(userEmail)) {
+            // Unsubscribe
+            subscribers = subscribers.filter(e => e !== userEmail)
+          } else {
+            // Subscribe
+            subscribers.push(userEmail)
+          }
+          await threadRef.set(subscribers)
+          return res.status(200).json({ subscribers })
+        }
+        case 'update-subscribers': {
+          const { threadId, subscribers } = req.body
+          if (!threadId || !Array.isArray(subscribers)) return res.status(400).json({ error: 'Missing threadId or subscribers' })
+          await db.ref(`threads/${threadId}/subscribers`).set(subscribers)
+          return res.status(200).json({ subscribers })
         }
         // Add more thread actions here (subscribe, reorder, etc.)
         default:
