@@ -14,6 +14,7 @@ import { updateThread } from '@/services/updateThread'
 import { deleteThread } from '@/services/deleteThread'
 import { updateSortOrder } from '@/services/updateSortOrder'
 import { getAllPosts } from '@/services/getPosts'
+import YellowSpinner from '@/components/YellowSpinner.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -21,6 +22,7 @@ const store = useForumStore()
 const newTitle = ref('')
 const threads = ref([])
 const router = useRouter()
+const isLoading = ref(true)
 
 // Computed property for formatted dates that reacts to locale changes
 const formatThreadDate = (date) => {
@@ -235,6 +237,7 @@ const handleDeleteThread = async () => {
 // FETCH THREADS AND POSTS
 const fetchThreadsAndPosts = async () => {
   if (!store.groupId) return
+  isLoading.value = true
   const threadsData = await getThreads(store.groupId)
   threads.value = threadsData.sort((a, b) => {
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
@@ -246,6 +249,7 @@ const fetchThreadsAndPosts = async () => {
     acc[post.id] = post
     return acc
   }, {})
+  isLoading.value = false
 }
 
 // INIT FETCH
@@ -261,7 +265,8 @@ watch(
 
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
-    <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <YellowSpinner v-if="isLoading" />
+    <main v-else class="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <!-- Create Thread Section -->
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">
         <input
