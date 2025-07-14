@@ -292,14 +292,11 @@ watch(
 
 // Watch for hash changes to detect deleted posts
 watch(
-  () => route.hash,
-  (newHash) => {
-    if (newHash) {
+  () => [route.hash, isLoading.value],
+  ([newHash, loading]) => {
+    if (!loading && newHash) {
       const postId = newHash.split('#').pop()
-      // Check after a short delay to ensure posts are loaded
-      setTimeout(() => {
-        checkPostExists(postId)
-      }, 500)
+      checkPostExists(postId)
     }
   },
   { immediate: true }
