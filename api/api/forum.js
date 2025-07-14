@@ -1,4 +1,11 @@
 import { getFirebaseDB } from '../_firebase.js'
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { encryptText, decryptText } = require('../utils/encryption.cjs');
+
+function safeParse(str) {
+  try { return JSON.parse(str); } catch { return { name: '', email: '' }; }
+}
 
 export default async function handler(req, res) {
 
@@ -36,6 +43,7 @@ export default async function handler(req, res) {
           const threads = Object.entries(allThreads)
             .map(([id, thread]) => ({ id, ...thread }))
             .filter(thread => thread.group === groupId)
+            .map(thread => ({ ...thread, author: thread.author ? safeParse(decryptText(thread.author)) : thread.author }));
           return res.status(200).json(threads)
         }
         case 'get-thread': {
@@ -44,7 +52,7 @@ export default async function handler(req, res) {
           const threadSnap = await db.ref(`threads/${threadId}`).get()
           const thread = threadSnap.val()
           if (!thread) return res.status(404).json({ error: 'Thread not found' })
-          return res.status(200).json({ id: threadId, ...thread })
+          return res.status(200).json({ id: threadId, ...thread, author: thread.author ? safeParse(decryptText(thread.author)) : thread.author })
         }
         default:
           return res.status(400).json({ error: 'Unknown action' })
@@ -58,7 +66,7 @@ export default async function handler(req, res) {
           const newThread = await threadsRef.push({
             title,
             createdAt: Date.now(),
-            author,
+            author: encryptText(author),
             group: groupId,
             sortOrder: Date.now()
           })
@@ -95,12 +103,12 @@ export default async function handler(req, res) {
           const snap = await threadRef.get()
           let subscribers = snap.val() || []
           if (!Array.isArray(subscribers)) subscribers = []
-          if (subscribers.includes(userEmail)) {
+          if (subscribers.includes(encryptText(userEmail))) {
             // Unsubscribe
-            subscribers = subscribers.filter(e => e !== userEmail)
+            subscribers = subscribers.filter(e => e !== encryptText(userEmail))
           } else {
             // Subscribe
-            subscribers.push(userEmail)
+            subscribers.push(encryptText(userEmail))
           }
           await threadRef.set(subscribers)
           return res.status(200).json({ subscribers })
@@ -108,8 +116,10 @@ export default async function handler(req, res) {
         case 'update-subscribers': {
           const { threadId, subscribers } = req.body
           if (!threadId || !Array.isArray(subscribers)) return res.status(400).json({ error: 'Missing threadId or subscribers' })
-          await db.ref(`threads/${threadId}/subscribers`).set(subscribers)
-          return res.status(200).json({ subscribers })
+          // Encrypt all subscribers before saving
+          const encryptedSubscribers = subscribers.map(email => encryptText(email))
+          await db.ref(`threads/${threadId}/subscribers`).set(encryptedSubscribers)
+          return res.status(200).json({ subscribers: encryptedSubscribers })
         }
         // Add more thread actions here (subscribe, reorder, etc.)
         default:

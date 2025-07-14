@@ -2,7 +2,6 @@
 import { onMounted, ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useForumStore } from '@/stores/forumStore'
-import { encryptText, decryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFormat'
 import { useI18n } from 'vue-i18n'
 import AvatarInitial from '@/components/AvatarInitial.vue'
@@ -58,8 +57,8 @@ function getLastPostInfo(threadId) {
   if (threadPosts.length === 0) return null
   const last = threadPosts.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
   return {
-    name: decryptUser(last.author).name,
-    email: decryptUser(last.author).email,
+    name: last.author?.name,
+    email: last.author?.email,
     date: last.createdAt
   }
 }
@@ -67,38 +66,18 @@ function getLastPostInfo(threadId) {
 // Subscribe logic
 function isSubscribed(thread) {
   if (!thread.subscribers) return false
-  // Decrypt each subscriber and compare email
-  return thread.subscribers.some(sub => {
-    try {
-      return decryptUser(sub).email === store.currentUser.email
-    } catch {
-      return false
-    }
-  })
+  return thread.subscribers.some(sub => sub.email === store.currentUser.email)
 }
 async function toggleSubscribe(thread) {
   if (!thread.subscribers) thread.subscribers = []
-  const encryptedCurrentUser = encryptUser(store.currentUser)
   // Check if already subscribed (by email)
-  const isSubscribedNow = thread.subscribers.some(sub => {
-    try {
-      return decryptUser(sub).email === store.currentUser.email
-    } catch {
-      return false
-    }
-  })
+  const isSubscribedNow = thread.subscribers.some(sub => sub.email === store.currentUser.email)
   // Optimistically update
   const oldSubscribers = [...thread.subscribers]
   if (isSubscribedNow) {
-    thread.subscribers = thread.subscribers.filter(sub => {
-      try {
-        return decryptUser(sub).email !== store.currentUser.email
-      } catch {
-        return true
-      }
-    })
+    thread.subscribers = thread.subscribers.filter(sub => sub.email !== store.currentUser.email)
   } else {
-    thread.subscribers = [...thread.subscribers, encryptedCurrentUser]
+    thread.subscribers = [...thread.subscribers, store.currentUser]
   }
   try {
     const res = await updateThreadSubscribers({ threadId: thread.id, subscribers: thread.subscribers })
@@ -125,12 +104,11 @@ const goToThread = (id) => {
 const createThreadHandler = async () => {
   if (!newTitle.value.trim() || !store.groupId) return
   const tempId = 'temp-' + Date.now()
-  const encryptedAuthor = encryptUser(store.currentUser)
   // Optimistically add thread with all required fields
   const optimisticThread = {
     id: tempId,
     title: newTitle.value,
-    author: encryptedAuthor,
+    author: store.currentUser,
     groupId: store.groupId,
     messageCount: 0,
     createdAt: Date.now(),
@@ -144,7 +122,7 @@ const createThreadHandler = async () => {
   try {
     const created = await createThread({
       title: oldTitle,
-      author: encryptedAuthor,
+      author: store.currentUser,
       groupId: store.groupId
     })
     // Merge real thread data with optimistic one to avoid missing fields
@@ -462,8 +440,8 @@ watch(
 
             <!-- Author and Date Info -->
             <div class="flex items-center text-sm text-gray-500 gap-2 mb-2">
-              <AvatarInitial :name="decryptUser(thread.author).name" class="w-5 h-5 sm:w-6 sm:h-6" />
-              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" class="text-sm" />
+              <AvatarInitial :name="thread.author?.name || ''" class="w-5 h-5 sm:w-6 sm:h-6" />
+              <UserName :name="thread.author?.name || ''" :email="thread.author?.email || ''" class="text-sm" />
               <span class="hidden sm:inline">•</span>
               <span class="text-xs sm:text-sm">
                 {{ formatThreadDate(thread.createdAt) }}
@@ -473,7 +451,7 @@ watch(
             <!-- Last Post Info -->
             <div v-if="getLastPostInfo(thread.id)" class="flex flex-col sm:flex-row items-start sm:items-center text-xs text-gray-400 gap-1 mb-3">
               <span>{{ $t('home.lastPostBy') }}</span>
-              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" class="text-xs" />
+              <UserName :name="getLastPostInfo(thread.id)?.name || ''" :email="getLastPostInfo(thread.id)?.email || ''" class="text-xs" />
               <span class="hidden sm:inline">•</span>
               <span class="text-xs">{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
             </div>

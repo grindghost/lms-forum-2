@@ -2,7 +2,7 @@
 import { onMounted, ref, computed, watch, defineComponent, h, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useForumStore } from '@/stores/forumStore'
-import { decryptText, encryptText, deterministicEncryptText, encryptUser, decryptUser } from '@/utils/encryption'
+// Encryption utilities removed; backend now handles encryption
 import { sanitizeHTML } from '@/utils/sanitize'
 import RichEditor from '@/components/RichEditor.vue'
 import PostItem from '@/components/PostItem.vue'
@@ -93,15 +93,13 @@ const cancelReply = () => {
 const reply = async (parentId = null) => {
   if (!newReply.value.trim()) return
   const tempId = 'temp-' + Date.now()
-  const encrypted = encryptText(sanitizeHTML(newReply.value))
-  const encryptedAuthor = encryptUser(store.currentUser)
   // Optimistically add post
   const optimisticPost = {
     id: tempId,
     threadId,
     parentId: parentId ?? null,
-    content: encrypted,
-    author: encryptedAuthor,
+    content: sanitizeHTML(newReply.value),
+    author: store.currentUser,
     createdAt: Date.now(),
     deleted: false,
     likes: 0,
@@ -117,8 +115,8 @@ const reply = async (parentId = null) => {
     const created = await createPost({
       threadId,
       parentId: parentId ?? null,
-      content: encrypted,
-      author: encryptedAuthor
+      content: optimisticPost.content,
+      author: store.currentUser
     })
     // Merge real post data with optimistic one
     const idx = posts.value.findIndex(p => p.id === tempId)
@@ -222,11 +220,11 @@ const nestedPosts = computed(() => {
 const threadAuthor = computed(() => {
   // If there are posts, use the first post's author
   if (posts.value.length > 0 && posts.value[0]?.author) {
-    return decryptUser(posts.value[0].author).name
+    return posts.value[0].author.name
   }
   // Otherwise, use the thread's author
   if (threadData.value?.author) {
-    return decryptUser(threadData.value.author).name
+    return threadData.value.author.name
   }
   return null
 })
@@ -331,10 +329,10 @@ function goToCallback() {
 // Add a computed for threadAuthorEmail
 const threadAuthorEmail = computed(() => {
   if (posts.value.length > 0 && posts.value[0]?.author) {
-    return decryptUser(posts.value[0].author).email
+    return posts.value[0].author.email
   }
   if (threadData.value?.author) {
-    return decryptUser(threadData.value.author).email
+    return threadData.value.author.email
   }
   return ''
 })
@@ -407,9 +405,6 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
           :store="store"
           :RichEditor="RichEditor"
           :sanitizeHTML="sanitizeHTML"
-          :decryptText="decryptText"
-          :encryptText="encryptText"
-          :deterministicEncryptText="deterministicEncryptText"
           :adminDeletePost="adminDeletePostHandler"
           :updatePost="updatePostHandler"
           :charLimit="store.charLimit"

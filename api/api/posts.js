@@ -1,4 +1,11 @@
 import { getFirebaseDB } from '../_firebase.js'
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { encryptText, decryptText } = require('../utils/encryption.cjs');
+
+function safeParse(str) {
+  try { return JSON.parse(str); } catch { return { name: '', email: '' }; }
+}
 
 export default async function handler(req, res) {
 
@@ -37,6 +44,7 @@ export default async function handler(req, res) {
           const posts = Object.entries(allPosts)
             .map(([id, post]) => ({ id, ...post }))
             .filter(post => post.threadId === threadId)
+            .map(post => ({ ...post, content: post.content ? decryptText(post.content) : post.content, author: post.author ? safeParse(decryptText(post.author)) : post.author }));
           return res.status(200).json(posts)
         }
         case 'get-all-posts': {
@@ -44,6 +52,7 @@ export default async function handler(req, res) {
           const snapshot = await postsRef.get()
           const allPosts = snapshot.val() || {}
           const posts = Object.entries(allPosts).map(([id, post]) => ({ id, ...post }))
+            .map(post => ({ ...post, content: post.content ? decryptText(post.content) : post.content, author: post.author ? safeParse(decryptText(post.author)) : post.author }));
           return res.status(200).json(posts)
         }
         default:
@@ -58,8 +67,8 @@ export default async function handler(req, res) {
           const newPost = await postsRef.push({
             threadId,
             parentId: parentId ?? null,
-            content,
-            author,
+            content: encryptText(content),
+            author: encryptText(typeof author === 'string' ? author : JSON.stringify(author)),
             createdAt: Date.now(),
             likes: 0,
             likedBy: [],
@@ -90,7 +99,7 @@ export default async function handler(req, res) {
           if (!postId || !content) return res.status(400).json({ error: 'Missing data' })
           const postRef = db.ref(`posts/${postId}`)
           await postRef.update({
-            originalContent: content,
+            originalContent: encryptText(content),
             content: '[deleted]',
             deleted: true
           })
@@ -102,7 +111,7 @@ export default async function handler(req, res) {
           const postRef = db.ref(`posts/${postId}`)
           if (originalContent) {
             await postRef.update({
-              content: originalContent,
+              content: decryptText(originalContent),
               deleted: false,
               originalContent: null
             })
@@ -117,7 +126,7 @@ export default async function handler(req, res) {
           const { postId, content } = req.body
           if (!postId || !content) return res.status(400).json({ error: 'Missing postId or content' })
           const postRef = db.ref(`posts/${postId}`)
-          await postRef.update({ content })
+          await postRef.update({ content: encryptText(content) })
           return res.status(200).json({ success: true })
         }
         case 'admin-delete-post': {
