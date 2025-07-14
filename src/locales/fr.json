@@ -23,7 +23,9 @@
       "group": "Groupe",
       "subscribe": "S'abonner",
       "unsubscribe": "Se désabonner",
-      "lastPostBy": "Dernier message par"
+      "lastPostBy": "Dernier message par",
+      "createThreadError": "Échec de la création de la discussion. Veuillez réessayer.",
+      "subscribeError": "Échec de la mise à jour de l'abonnement. Veuillez réessayer."
     },
     "thread": {
       "reply": "Répondre",

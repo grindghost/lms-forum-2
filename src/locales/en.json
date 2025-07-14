@@ -23,7 +23,9 @@
       "group": "Group",
       "subscribe": "Subscribe",
       "unsubscribe": "Unsubscribe",
-      "lastPostBy": "Last post by"
+      "lastPostBy": "Last post by",
+      "createThreadError": "Failed to create thread. Please try again.",
+      "subscribeError": "Failed to update subscription. Please try again."
     },
     "thread": {
       "reply": "Reply",
