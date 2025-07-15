@@ -108,31 +108,21 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true, likes, likedBy });
         }
         case 'soft-delete-post': {
-          const { postId, content } = req.body
-          if (!postId || !content) return res.status(400).json({ error: 'Missing data' })
+          const { postId } = req.body
+          if (!postId) return res.status(400).json({ error: 'Missing postId' })
           const postRef = db.ref(`posts/${postId}`)
           await postRef.update({
-            originalContent: encryptText(content),
-            content: '[deleted]',
             deleted: true
           })
           return res.status(200).json({ success: true })
         }
         case 'restore-post': {
-          const { postId, originalContent } = req.body
+          const { postId } = req.body
           if (!postId) return res.status(400).json({ error: 'Missing postId' })
           const postRef = db.ref(`posts/${postId}`)
-          if (originalContent) {
-            await postRef.update({
-              content: decryptText(originalContent),
-              deleted: false,
-              originalContent: null
-            })
-          } else {
-            await postRef.update({
-              deleted: false
-            })
-          }
+          await postRef.update({
+            deleted: false
+          })
           return res.status(200).json({ success: true })
         }
         case 'update-post': {

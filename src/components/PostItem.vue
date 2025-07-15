@@ -92,7 +92,7 @@
           <button
             v-if="store.isAdmin() || post.author.email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-error"
-            @click="store.isAdmin() ? confirmDeletePost(post.id) : deletePost(post.id)"
+            @click="store.isAdmin() ? confirmDeletePost(post.id) : deletePost(post.id, post.content)"
             :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             {{ $t('thread.delete') }}
