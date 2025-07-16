@@ -91,6 +91,55 @@ export const useForumStore = defineStore('forum', () => {
     console.log('📦 Group ID set to:', groupId.value)
   }
 
+  const threads = ref({}) // { [threadId]: threadObject }
+  const posts = ref({})   // { [postId]: postObject }
+  const threadsLoaded = ref(false)
+
+  // Setters for threads
+  function setThreads(threadArray) {
+    threadArray.forEach(thread => {
+      threads.value[thread.id] = thread
+    })
+    threadsLoaded.value = true
+  }
+  function addThread(thread) {
+    threads.value[thread.id] = thread
+  }
+  function updateThread(thread) {
+    if (threads.value[thread.id]) {
+      threads.value[thread.id] = { ...threads.value[thread.id], ...thread }
+    }
+  }
+  function removeThread(threadId) {
+    delete threads.value[threadId]
+  }
+
+  function replaceThreads(threadArray) {
+    threads.value = {}
+    threadArray.forEach(thread => {
+      threads.value[thread.id] = thread
+    })
+    threadsLoaded.value = true
+  }
+
+  // Setters for posts
+  function setPosts(postArray) {
+    postArray.forEach(post => {
+      posts.value[post.id] = post
+    })
+  }
+  function addPost(post) {
+    posts.value[post.id] = post
+  }
+  function updatePost(post) {
+    if (posts.value[post.id]) {
+      posts.value[post.id] = { ...posts.value[post.id], ...post }
+    }
+  }
+  function removePost(postId) {
+    delete posts.value[postId]
+  }
+
   return {
     config,
     currentUser,
@@ -100,6 +149,19 @@ export const useForumStore = defineStore('forum', () => {
     loadConfig,
     initFromLMS,
     setHoveredPost,
-    charLimit
+    charLimit,
+    // New state and actions for threads and posts
+    threads,
+    posts,
+    setThreads,
+    addThread,
+    updateThread,
+    removeThread,
+    replaceThreads,
+    setPosts,
+    addPost,
+    updatePost,
+    removePost,
+    threadsLoaded
   }
 })

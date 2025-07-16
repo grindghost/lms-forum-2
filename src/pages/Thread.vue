@@ -21,6 +21,7 @@ import { restorePost } from '@/services/restorePost'
 import { adminDeletePost } from '@/services/adminDeletePost'
 import { updatePost } from '@/services/updatePost'
 import YellowSpinner from '@/components/YellowSpinner.vue'
+import { getThreads } from '@/services/getThreads'
 
 const { t: $t, locale } = useI18n()
 
@@ -28,9 +29,9 @@ const route = useRoute()
 const store = useForumStore()
 const threadId = route.params.id
 
-const threadTitle = ref('Loading…')
-const threadData = ref(null)
-const posts = ref([])
+const thread = computed(() => store.threads[threadId])
+const threadTitle = computed(() => thread.value?.title || $t('thread.untitled'))
+const posts = computed(() => Object.values(store.posts).filter(p => p.threadId === threadId).sort((a, b) => a.createdAt - b.createdAt))
 const newReply = ref('')
 const replyingTo = ref(null)
 
@@ -66,17 +67,33 @@ const checkPostExists = (postId) => {
 }
 
 const isLoading = ref(true)
+const postsLoaded = ref(false)
 
 const fetchThread = async () => {
-  isLoading.value = true
-  const data = await getThread(threadId)
-  threadData.value = data
-  threadTitle.value = data?.title || $t('thread.untitled')
+  // If threads are not loaded, fetch all threads
+  if (Object.keys(store.threads).length === 0) {
+    console.log('fetching threads')
+    const threadsData = await getThreads(store.groupId, store.currentUser)
+    store.replaceThreads(threadsData)
+  }
+  // If the specific thread is still not found, fetch it directly as a fallback
+  if (!store.threads[threadId]) {
+    const data = await getThread(threadId)
+    store.addThread(data)
+  }
 }
 
-const fetchPosts = async () => {
+const fetchPosts = async (force = false) => {
+  postsLoaded.value = false
+  isLoading.value = true
+  if (!force && posts.value.length > 0) {
+    postsLoaded.value = true
+    isLoading.value = false
+    return
+  }
   const all = await getPosts(threadId)
-  posts.value = all.sort((a, b) => a.createdAt - b.createdAt)
+  store.setPosts(all)
+  postsLoaded.value = true
   isLoading.value = false
 }
 
@@ -106,7 +123,7 @@ const reply = async (parentId = null) => {
     likedBy: [],
     updatedAt: Date.now()
   }
-  posts.value.push(optimisticPost)
+  store.addPost(optimisticPost)
   lastCreatedPostId.value = tempId
   const oldReply = newReply.value
   newReply.value = ''
@@ -118,14 +135,12 @@ const reply = async (parentId = null) => {
       content: optimisticPost.content,
       author: store.currentUser
     })
-    // Merge real post data with optimistic one
-    const idx = posts.value.findIndex(p => p.id === tempId)
-    if (idx !== -1) {
-      posts.value[idx] = { ...posts.value[idx], ...created }
-      lastCreatedPostId.value = posts.value[idx].id
-    }
+    // Remove the temp post and add the real one
+    store.removePost(tempId)
+    store.addPost({ ...optimisticPost, ...created, id: created.id })
+    lastCreatedPostId.value = created.id
   } catch (e) {
-    posts.value = posts.value.filter(p => p.id !== tempId)
+    store.removePost(tempId)
     errorMessage.value = $t('thread.createPostError') || 'Failed to create post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -133,30 +148,27 @@ const reply = async (parentId = null) => {
 }
 
 const likePostHandler = async (postId, currentLikes, likedBy = []) => {
-  const idx = posts.value.findIndex(p => p.id === postId)
-  if (idx === -1) return
+  const post = store.posts[postId]
+  if (!post) return
   const userEmail = store.currentUser.email
-  const hasLiked = likedBy.includes(userEmail)
+  const hasLiked = post.likedBy.some(u => u.email === userEmail)
   // Optimistically update
-  const oldLikes = posts.value[idx].likes
-  const oldLikedBy = [...posts.value[idx].likedBy]
+  const oldLikes = post.likes
+  const oldLikedBy = [...post.likedBy]
   if (hasLiked) {
-    posts.value[idx].likes = oldLikes - 1
-    posts.value[idx].likedBy = oldLikedBy.filter(e => e !== userEmail)
+    store.updatePost({ id: postId, likes: oldLikes - 1, likedBy: oldLikedBy.filter(e => e.email !== userEmail) })
   } else {
-    posts.value[idx].likes = oldLikes + 1
-    posts.value[idx].likedBy = [...oldLikedBy, userEmail]
+    store.updatePost({ id: postId, likes: oldLikes + 1, likedBy: [...oldLikedBy, { email: userEmail, name: store.currentUser.name }] })
   }
   try {
     await likePost({
       postId,
       userEmail,
-      likedBy: posts.value[idx].likedBy,
-      currentLikes: posts.value[idx].likes
+      likedBy: store.posts[postId].likedBy,
+      currentLikes: store.posts[postId].likes
     })
   } catch (e) {
-    posts.value[idx].likes = oldLikes
-    posts.value[idx].likedBy = oldLikedBy
+    store.updatePost({ id: postId, likes: oldLikes, likedBy: oldLikedBy })
     errorMessage.value = $t('thread.likePostError') || 'Failed to like post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -164,15 +176,15 @@ const likePostHandler = async (postId, currentLikes, likedBy = []) => {
 }
 
 const deletePost = async (postId, content) => {
-  const idx = posts.value.findIndex(p => p.id === postId)
-  if (idx === -1) return
-  const oldDeleted = posts.value[idx].deleted
+  const post = store.posts[postId]
+  if (!post) return
+  const oldDeleted = post.deleted
   // Optimistically mark as deleted
-  posts.value[idx].deleted = true
+  store.updatePost({ id: postId, deleted: true })
   try {
     await softDeletePost({ postId, content })
   } catch (e) {
-    posts.value[idx].deleted = oldDeleted
+    store.updatePost({ id: postId, deleted: oldDeleted })
     errorMessage.value = $t('thread.deletePostError') || 'Failed to delete post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -185,20 +197,51 @@ const restorePostHandler = async (postId, originalContent) => {
 }
 
 const adminDeletePostHandler = async (postId) => {
-  await adminDeletePost({ postId })
-  await fetchPosts()
+  // 1. Find all descendant post IDs (including the post itself)
+  const findDescendants = (id, allPosts) => {
+    let ids = [id]
+    Object.values(allPosts).forEach(post => {
+      if (post.parentId === id) {
+        ids = ids.concat(findDescendants(post.id, allPosts))
+      }
+    })
+    return ids
+  }
+  const allPosts = store.posts
+  const idsToDelete = findDescendants(postId, allPosts)
+  // 2. Backup the posts to be deleted
+  const backup = {}
+  idsToDelete.forEach(id => {
+    backup[id] = allPosts[id]
+  })
+  // 3. Optimistically remove from store
+  idsToDelete.forEach(id => {
+    store.removePost(id)
+  })
+  try {
+    await adminDeletePost({ postId })
+    // Success: do nothing, UI is already correct
+  } catch (e) {
+    // Failure: restore posts
+    Object.values(backup).forEach(post => {
+      store.addPost(post)
+    })
+    errorMessage.value = $t('thread.deletePostError') || 'Failed to delete post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const updatePostHandler = async (postId, content) => {
-  const idx = posts.value.findIndex(p => p.id === postId)
-  if (idx === -1) return
-  const oldContent = posts.value[idx].content
+  const post = store.posts[postId]
+  if (!post) return
+  const oldContent = post.content
   // Optimistically update
-  posts.value[idx].content = content
+  store.updatePost({ id: postId, content })
   try {
     await updatePost({ postId, content })
   } catch (e) {
-    posts.value[idx].content = oldContent
+    store.updatePost({ id: postId, content: oldContent })
     errorMessage.value = $t('thread.editPostError') || 'Failed to edit post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -223,8 +266,8 @@ const threadAuthor = computed(() => {
     return posts.value[0].author.name
   }
   // Otherwise, use the thread's author
-  if (threadData.value?.author) {
-    return threadData.value.author.name
+  if (thread.value?.author) {
+    return thread.value.author.name
   }
   return null
 })
@@ -240,8 +283,8 @@ const threadDate = computed(() => {
     return formatDate(posts.value[0].createdAt, locale.value)
   }
   // Otherwise, use the thread's date
-  if (threadData.value?.createdAt) {
-    return formatDate(threadData.value.createdAt, locale.value)
+  if (thread.value?.createdAt) {
+    return formatDate(thread.value.createdAt, locale.value)
   }
   return ''
 })
@@ -251,7 +294,7 @@ const canPost = computed(() => {
   // Admin can always post
   if (store.isAdmin()) return true
   // If thread is read-only, only admin can post
-  if (threadData.value?.readOnly) return false
+  if (thread.value?.readOnly) return false
   // Otherwise, anyone can post
   return true
 })
@@ -263,7 +306,7 @@ const renderPosts = (parentId = null, depth = 0) => {
     : list
   
   // If thread is read-only, only show original posts (depth 0) and hide all replies
-  if (threadData.value?.readOnly && depth > 0) {
+  if (thread.value?.readOnly && depth > 0) {
     return []
   }
   
@@ -274,9 +317,29 @@ const renderPosts = (parentId = null, depth = 0) => {
   }))
 }
 
-onMounted(async () => {
-  await fetchThread()
-  await fetchPosts()
+onMounted(() => {
+  let loaded = false
+  watch(
+    () => [store.config, store.groupId, store.currentUser],
+    async ([config, groupId, currentUser]) => {
+      if (loaded) return
+      if (!config || !groupId || !currentUser || !currentUser.email) return
+      // Fetch all threads for the group
+      if (!store.threadsLoaded) {
+        const threadsData = await getThreads(groupId, currentUser)
+        store.replaceThreads(threadsData)
+      }
+      // Fetch posts for the current thread
+      if (posts.value.length === 0) {
+        const all = await getPosts(threadId)
+        store.setPosts(all)
+      }
+      postsLoaded.value = true
+      isLoading.value = false
+      loaded = true
+    },
+    { immediate: true }
+  )
 })
 
 // Watch for route changes and re-fetch data
@@ -292,9 +355,9 @@ watch(
 
 // Watch for hash changes to detect deleted posts
 watch(
-  () => [route.hash, isLoading.value],
-  ([newHash, loading]) => {
-    if (!loading && newHash) {
+  [() => route.hash, () => isLoading.value, () => posts.value.length],
+  ([newHash, loading, postCount]) => {
+    if (!loading && newHash && postCount > 0) {
       const postId = newHash.split('#').pop()
       checkPostExists(postId)
     }
@@ -328,8 +391,8 @@ const threadAuthorEmail = computed(() => {
   if (posts.value.length > 0 && posts.value[0]?.author) {
     return posts.value[0].author.email
   }
-  if (threadData.value?.author) {
-    return threadData.value.author.email
+  if (thread.value?.author) {
+    return thread.value.author.email
   }
   return ''
 })
@@ -389,12 +452,12 @@ function stopEditing() {
       </div>
 
       <!-- Posts List -->
-      <div v-if="renderPosts().length > 0" class="space-y-4">
+      <div v-if="postsLoaded && renderPosts().length > 0" class="space-y-4">
         <PostItem
           v-for="post in renderPosts()"
           :key="post.id"
           :post="post"
-          :threadData="threadData"
+          :threadData="thread"
           :replyingTo="replyingTo"
           :editingPostId="editingPostId"
           :isAnyEditorOpen="isAnyEditorOpen"
@@ -420,7 +483,7 @@ function stopEditing() {
       </div>
 
       <!-- No Posts Message -->
-      <div v-else class="text-center py-12">
+      <div v-else-if="postsLoaded && renderPosts().length === 0" class="text-center py-12">
         <div class="max-w-md mx-auto">
           <div class="text-6xl mb-4">💬</div>
           <h3 class="text-xl font-semibold text-base-content mb-2">

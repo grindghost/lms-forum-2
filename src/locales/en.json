@@ -25,7 +25,8 @@
       "unsubscribe": "Unsubscribe",
       "lastPostBy": "Last post by",
       "createThreadError": "Failed to create thread. Please try again.",
-      "subscribeError": "Failed to update subscription. Please try again."
+      "subscribeError": "Failed to update subscription. Please try again.",
+      "deleteThreadError": "Failed to delete thread. Please try again."
     },
     "thread": {
       "reply": "Reply",

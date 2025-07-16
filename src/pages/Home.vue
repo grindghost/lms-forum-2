@@ -21,11 +21,17 @@ const { t: $t, locale } = useI18n()
 
 const store = useForumStore()
 const newTitle = ref('')
-const threads = ref([])
 const router = useRouter()
 const isLoading = ref(true)
 const showErrorToast = ref(false)
 const errorMessage = ref('')
+
+// Use store.threads and store.posts as arrays for rendering
+const threads = computed(() => Object.values(store.threads).sort((a, b) => {
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+  return b.createdAt - a.createdAt
+}))
+const posts = computed(() => store.posts)
 
 // Computed property for formatted dates that reacts to locale changes
 const formatThreadDate = (date) => {
@@ -49,11 +55,11 @@ const dropPosition = ref(null) // 'above' or 'below'
 const previousThreads = ref([])
 
 // Track posts for last poster info
-const posts = ref({})
+// const posts = ref({}) // This line is removed as per the edit hint
 
 // Helper to get last post info for a thread
 function getLastPostInfo(threadId) {
-  const threadPosts = Object.values(posts.value).filter(p => p.threadId === threadId && !p.deleted)
+  const threadPosts = Object.values(store.posts).filter(p => p.threadId === threadId && !p.deleted)
   if (threadPosts.length === 0) return null
   const last = threadPosts.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
   return {
@@ -104,7 +110,7 @@ const createThreadHandler = async () => {
     subscribers: [],
     readOnly: false
   }
-  threads.value.unshift(optimisticThread)
+  store.addThread(optimisticThread)
   const oldTitle = newTitle.value
   newTitle.value = ''
   try {
@@ -113,13 +119,11 @@ const createThreadHandler = async () => {
       author: store.currentUser,
       groupId: store.groupId
     })
-    // Merge real thread data with optimistic one to avoid missing fields
-    const idx = threads.value.findIndex(t => t.id === tempId)
-    if (idx !== -1) {
-      threads.value[idx] = { ...threads.value[idx], ...created }
-    }
+    // Remove the temp thread and add the real thread
+    store.removeThread(tempId)
+    store.addThread({ ...optimisticThread, ...created, id: created.id })
   } catch (e) {
-    threads.value = threads.value.filter(t => t.id !== tempId)
+    store.removeThread(tempId)
     errorMessage.value = $t('home.createThreadError') || 'Failed to create thread'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -139,18 +143,16 @@ const cancelEditThread = () => {
 
 const saveEditThread = async (threadId) => {
   if (!editingThreadTitle.value.trim()) return
-  const idx = threads.value.findIndex(t => t.id === threadId)
-  if (idx === -1) return
-  const oldTitle = threads.value[idx].title
+  const oldThread = { ...store.threads[threadId] }
   // Optimistically update
-  threads.value[idx].title = editingThreadTitle.value.trim()
+  store.updateThread({ id: threadId, title: editingThreadTitle.value.trim() })
   editingThreadId.value = null
   editingThreadTitle.value = ''
   try {
-    await updateThread({ id: threadId, title: threads.value[idx].title })
+    await updateThread({ id: threadId, title: store.threads[threadId].title })
   } catch (e) {
     // Revert
-    threads.value[idx].title = oldTitle
+    store.updateThread(oldThread)
     errorMessage.value = $t('home.editThreadError') || 'Failed to edit thread'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -234,11 +236,11 @@ const handleDrop = async (e, targetThread) => {
       thread.sortOrder = newSortOrder
     })
     // Optimistically update UI
-    threads.value = newThreads
+    store.setThreads(newThreads)
     await updateSortOrder({ updates })
   } catch (error) {
     // Revert UI
-    threads.value = previousThreads.value.map(t => ({ ...t }))
+    store.setThreads(previousThreads.value.map(t => ({ ...t })))
     errorMessage.value = $t('home.sortOrderError') || 'Failed to update sort order'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -274,15 +276,15 @@ const handleDeleteThread = async () => {
   if (!threadToDelete.value) return
   // Optimistically remove thread
   const deletedId = threadToDelete.value.id
-  const previous = threads.value.map(t => ({ ...t }))
-  threads.value = threads.value.filter(t => t.id !== deletedId)
+  const oldThread = { ...store.threads[deletedId] }
+  store.removeThread(deletedId)
   showDeleteConfirm.value = false
   threadToDelete.value = null
   try {
     await deleteThread({ id: deletedId })
   } catch (e) {
     // Revert UI
-    threads.value = previous
+    store.addThread(oldThread)
     errorMessage.value = $t('home.deleteThreadError') || 'Failed to delete thread'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -292,25 +294,20 @@ const handleDeleteThread = async () => {
 // FETCH THREADS AND POSTS
 const fetchThreadsAndPosts = async () => {
   if (!store.groupId) return
-  isLoading.value = true
-  const threadsData = await getThreads(store.groupId, store.currentUser)
-  threads.value = threadsData.sort((a, b) => {
-    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
-    return b.createdAt - a.createdAt
-  })
-  // Fetch all posts for last post info
-  const postsData = await getPosts()
-  posts.value = postsData.reduce((acc, post) => {
-    acc[post.id] = post
-    return acc
-  }, {})
-  // Set messageCount for each thread
-  threads.value.forEach(thread => {
-    thread.messageCount = Object.values(posts.value).filter(
-      p => p.threadId === thread.id && !p.deleted
-    ).length;
-  });
-  isLoading.value = false
+  if (!store.threadsLoaded) {
+    isLoading.value = true
+    const threadsData = await getThreads(store.groupId, store.currentUser)
+    store.replaceThreads(threadsData)
+    // Fetch posts for each thread for last post info
+    for (const thread of threadsData) {
+      const postsData = await getPosts(thread.id)
+      store.setPosts(postsData)
+      store.updateThread({ id: thread.id, messageCount: postsData.filter(p => !p.deleted).length })
+    }
+    isLoading.value = false
+  } else {
+    isLoading.value = false // Data is already present, skip spinner
+  }
 }
 
 // INIT FETCH

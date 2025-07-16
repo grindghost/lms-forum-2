@@ -184,10 +184,21 @@ export default async function handler(req, res) {
           const thread = threadSnap.val()
           if (!thread) return res.status(404).json({ error: 'Thread not found' })
           const forumId = thread.forumId
-          // Atomic update: remove thread and reference
+
+          // --- Begin cascading delete logic ---
+          // Fetch all post IDs for this thread
+          const postIdsSnap = await db.ref(`threads/${id}/postIds`).get()
+          const postIdsObj = postIdsSnap.val() || {}
+          const postIds = Object.keys(postIdsObj)
+          // Prepare updates to delete all posts and the postIds map
           const updates = {}
+          postIds.forEach(postId => {
+            updates[`posts/${postId}`] = null
+          })
           updates[`threads/${id}`] = null
           updates[`forums/${forumId}/threadIds/${id}`] = null
+          // --- End cascading delete logic ---
+
           await db.ref().update(updates)
           return res.status(200).json({ success: true })
         }
