@@ -334,8 +334,16 @@ const threadAuthorEmail = computed(() => {
   return ''
 })
 
-const editingPostId = ref(null) // Add this if not already present
+const editingPostId = ref(null)
 const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostModal.value || editingPostId.value !== null)
+
+function startEditing(postId) {
+  editingPostId.value = postId;
+}
+
+function stopEditing() {
+  editingPostId.value = null;
+}
 </script>
 
 <template>
@@ -406,6 +414,8 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
           :updatePost="updatePostHandler"
           :charLimit="store.charLimit"
           @update:newReply="val => newReply = val"
+          @startEditing="startEditing"
+          @stopEditing="stopEditing"
         />
       </div>
 
