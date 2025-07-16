@@ -70,5 +70,10 @@
       "legal": "Mentions légales",
       "terms": "Conditions d'utilisation",
       "privacy": "Confidentialité et témoins"
+    },
+    "notFound": {
+      "title": "404 - Discussion introuvable",
+      "message": "La discussion que vous recherchez n'existe pas ou a été supprimée.",
+      "goHome": "Retour à l'accueil"
     }
   }

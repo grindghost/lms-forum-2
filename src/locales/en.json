@@ -70,5 +70,10 @@
       "legal": "Legal",
       "terms": "Terms of Use",
       "privacy": "Privacy & Cookies"
+    },
+    "notFound": {
+      "title": "404 - Thread Not Found",
+      "message": "The thread you are looking for does not exist or has been deleted.",
+      "goHome": "Go to Home"
     }
   }

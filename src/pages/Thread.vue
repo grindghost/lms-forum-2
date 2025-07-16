@@ -22,6 +22,7 @@ import { adminDeletePost } from '@/services/adminDeletePost'
 import { updatePost } from '@/services/updatePost'
 import YellowSpinner from '@/components/YellowSpinner.vue'
 import { getThreads } from '@/services/getThreads'
+import NotFound from '@/components/NotFound.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -68,18 +69,32 @@ const checkPostExists = (postId) => {
 
 const isLoading = ref(true)
 const postsLoaded = ref(false)
+const notFound = ref(false)
 
 const fetchThread = async () => {
   // If threads are not loaded, fetch all threads
   if (Object.keys(store.threads).length === 0) {
-    console.log('fetching threads')
     const threadsData = await getThreads(store.groupId, store.currentUser)
     store.replaceThreads(threadsData)
   }
   // If the specific thread is still not found, fetch it directly as a fallback
   if (!store.threads[threadId]) {
-    const data = await getThread(threadId)
-    store.addThread(data)
+    try {
+      const data = await getThread(threadId)
+      if (data && data.id) {
+        store.addThread(data)
+      } else {
+        notFound.value = true
+        return
+      }
+    } catch (e) {
+      notFound.value = true
+      return
+    }
+  }
+  // If still not found after all attempts
+  if (!store.threads[threadId]) {
+    notFound.value = true
   }
 }
 
@@ -334,6 +349,10 @@ onMounted(() => {
         const all = await getPosts(threadId)
         store.setPosts(all)
       }
+      // Check if thread exists after all fetches
+      if (!store.threads[threadId]) {
+        notFound.value = true
+      }
       postsLoaded.value = true
       isLoading.value = false
       loaded = true
@@ -410,120 +429,119 @@ function stopEditing() {
 </script>
 
 <template>
-  <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16">
-    <ErrorToast :show="showErrorToast" :message="errorMessage" />
-    <div v-if="isLoading" class="flex items-center justify-center min-h-[40vh]">
-      <YellowSpinner />
-    </div>
-    <div v-else class="max-w-5xl mx-auto px-4">
-      <!-- Thread Header -->
-      <div class="mb-6 border-b pb-4">
-        <h1 class="text-[1.5rem] font-regular font-overpass text-base-content">
-          {{ threadTitle }}
-        </h1>
-        <div class="text-sm text-base-content/70 mt-1 flex gap-2 items-center">
-          <AvatarInitial :name="threadAuthor || '?'" />
-          <UserName :name="threadAuthor || '?'" :email="threadAuthorEmail || ''" />
-          <span v-if="threadDate">•</span>
-          <span v-if="threadDate"> {{ threadDate }}</span>
-        </div>
+  <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16" :class="{ 'flex items-center justify-center min-h-[40vh] pt-24 pb-0': notFound }">
+    <template v-if="notFound">
+      <NotFound />
+    </template>
+    <template v-else>
+      <ErrorToast :show="showErrorToast" :message="errorMessage" />
+      <div v-if="isLoading" class="flex items-center justify-center min-h-[40vh]">
+        <YellowSpinner />
       </div>
-
-      <!-- Hide Deleted Posts Checkbox and Add Post Button Row -->
-      <div class="mb-4 flex items-center gap-2 justify-between">
-        <div class="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="hideDeletedPosts"
-            v-model="hideDeletedPosts"
-            class="checkbox checkbox-sm"
-          />
-          <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
-            {{ $t('thread.hideDeletedPosts') }}
-          </label>
-        </div>
-        <div v-if="canPost" class="flex items-center">
-          <button
-            class="bg-blue-600 text-white rounded-full shadow-lg w-10 h-10 flex items-center justify-center text-3xl hover:bg-blue-700 transition"
-            @click="openNewPostModal"
-            aria-label="Add new post"
-          >
-            +
-          </button>
-        </div>
-      </div>
-
-      <!-- Posts List -->
-      <div v-if="postsLoaded && renderPosts().length > 0" class="space-y-4">
-        <PostItem
-          v-for="post in renderPosts()"
-          :key="post.id"
-          :post="post"
-          :threadData="thread"
-          :replyingTo="replyingTo"
-          :editingPostId="editingPostId"
-          :isAnyEditorOpen="isAnyEditorOpen"
-          :newReply="newReply"
-          :depth="post.depth"
-          :renderPosts="renderPosts"
-          :showReplyEditor="showReplyEditor"
-          :likePost="likePostHandler"
-          :deletePost="deletePost"
-          :restorePost="restorePostHandler"
-          :reply="reply"
-          :cancelReply="cancelReply"
-          :store="store"
-          :RichEditor="RichEditor"
-          :sanitizeHTML="sanitizeHTML"
-          :adminDeletePost="adminDeletePostHandler"
-          :updatePost="updatePostHandler"
-          :charLimit="store.charLimit"
-          @update:newReply="val => newReply = val"
-          @startEditing="startEditing"
-          @stopEditing="stopEditing"
-        />
-      </div>
-
-      <!-- No Posts Message -->
-      <div v-else-if="postsLoaded && renderPosts().length === 0" class="text-center py-12">
-        <div class="max-w-md mx-auto">
-          <div class="text-6xl mb-4">💬</div>
-          <h3 class="text-xl font-semibold text-base-content mb-2">
-            {{ $t('thread.noPostsYet') }}
-          </h3>
-          <p class="text-base-content/70 mb-6">
-            {{ $t('thread.beFirstToPost') }}
-          </p>
-          <button 
-            v-if="canPost"
-            class="btn btn-primary btn-lg"
-            @click="openNewPostModal"
-          >
-            {{ $t('thread.createFirstPost') }}
-          </button>
-          <div v-else class="text-base-content/60">
-            {{ $t('thread.readOnlyThread') }}
+      <div v-else class="max-w-5xl mx-auto px-4">
+        <!-- Thread Header -->
+        <div class="mb-6 border-b pb-4">
+          <h1 class="text-[1.5rem] font-regular font-overpass text-base-content">
+            {{ threadTitle }}
+          </h1>
+          <div class="text-sm text-base-content/70 mt-1 flex gap-2 items-center">
+            <AvatarInitial :name="threadAuthor || '?'" />
+            <UserName :name="threadAuthor || '?'" :email="threadAuthorEmail || ''" />
+            <span v-if="threadDate">•</span>
+            <span v-if="threadDate"> {{ threadDate }}</span>
           </div>
         </div>
+        <!-- Hide Deleted Posts Checkbox and Add Post Button Row -->
+        <div class="mb-4 flex items-center gap-2 justify-between">
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hideDeletedPosts"
+              v-model="hideDeletedPosts"
+              class="checkbox checkbox-sm"
+            />
+            <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
+              {{ $t('thread.hideDeletedPosts') }}
+            </label>
+          </div>
+          <div v-if="canPost" class="flex items-center">
+            <button
+              class="bg-blue-600 text-white rounded-full shadow-lg w-10 h-10 flex items-center justify-center text-3xl hover:bg-blue-700 transition"
+              @click="openNewPostModal"
+              aria-label="Add new post"
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <!-- Posts List -->
+        <div v-if="postsLoaded && renderPosts().length > 0" class="space-y-4">
+          <PostItem
+            v-for="post in renderPosts()"
+            :key="post.id"
+            :post="post"
+            :threadData="thread"
+            :replyingTo="replyingTo"
+            :editingPostId="editingPostId"
+            :isAnyEditorOpen="isAnyEditorOpen"
+            :newReply="newReply"
+            :depth="post.depth"
+            :renderPosts="renderPosts"
+            :showReplyEditor="showReplyEditor"
+            :likePost="likePostHandler"
+            :deletePost="deletePost"
+            :restorePost="restorePostHandler"
+            :reply="reply"
+            :cancelReply="cancelReply"
+            :store="store"
+            :RichEditor="RichEditor"
+            :sanitizeHTML="sanitizeHTML"
+            :adminDeletePost="adminDeletePostHandler"
+            :updatePost="updatePostHandler"
+            :charLimit="store.charLimit"
+            @update:newReply="val => newReply = val"
+            @startEditing="startEditing"
+            @stopEditing="stopEditing"
+          />
+        </div>
+        <!-- No Posts Message -->
+        <div v-else-if="postsLoaded && renderPosts().length === 0" class="text-center py-12">
+          <div class="max-w-md mx-auto">
+            <div class="text-6xl mb-4">💬</div>
+            <h3 class="text-xl font-semibold text-base-content mb-2">
+              {{ $t('thread.noPostsYet') }}
+            </h3>
+            <p class="text-base-content/70 mb-6">
+              {{ $t('thread.beFirstToPost') }}
+            </p>
+            <button 
+              v-if="canPost"
+              class="btn btn-primary btn-lg"
+              @click="openNewPostModal"
+            >
+              {{ $t('thread.createFirstPost') }}
+            </button>
+            <div v-else class="text-base-content/60">
+              {{ $t('thread.readOnlyThread') }}
+            </div>
+          </div>
+        </div>
+        <!-- New Post Modal -->
+        <NewPostModal
+          :show="showNewPostModal"
+          v-model:content="newReply"
+          :RichEditor="RichEditor"
+          :charLimit="store.charLimit"
+          @cancel="closeNewPostModal"
+          @confirm="() => { reply(null); closeNewPostModal() }"
+        />
+        <!-- Deleted Post Toast -->
+        <ErrorToast 
+          :show="showDeletedPostToast" 
+          :message="$t('thread.postDeleted')" 
+        />
       </div>
-
-      <!-- New Post Modal -->
-      <NewPostModal
-        :show="showNewPostModal"
-        v-model:content="newReply"
-        :RichEditor="RichEditor"
-        :charLimit="store.charLimit"
-        @cancel="closeNewPostModal"
-        @confirm="() => { reply(null); closeNewPostModal() }"
-      />
-
-      <!-- Deleted Post Toast -->
-      <ErrorToast 
-        :show="showDeletedPostToast" 
-        :message="$t('thread.postDeleted')" 
-      />
-
-    </div>
+    </template>
   </div>
 </template>
 
