@@ -329,8 +329,8 @@ onMounted(() => {
         const threadsData = await getThreads(groupId, currentUser)
         store.replaceThreads(threadsData)
       }
-      // Fetch posts for the current thread
-      if (posts.value.length === 0) {
+      // Only fetch posts if not already loaded for this thread
+      if (!Object.values(store.posts).some(p => p.threadId === threadId)) {
         const all = await getPosts(threadId)
         store.setPosts(all)
       }

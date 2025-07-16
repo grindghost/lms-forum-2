@@ -180,11 +180,27 @@ export default async function handler(req, res) {
         case 'admin-delete-post': {
           const { postId } = req.body
           if (!postId) return res.status(400).json({ error: 'Missing postId' })
-          const postsSnapshot = await db.ref('posts').get()
-          const allPosts = postsSnapshot.val() || {}
+          // 1. Find the threadId for the post
+          const postSnap = await db.ref(`posts/${postId}`).get()
+          const post = postSnap.val()
+          if (!post) return res.status(404).json({ error: 'Post not found' })
+          const threadId = post.threadId
+
+          // 2. Fetch only post IDs for this thread
+          const postIdsObj = (await db.ref(`threads/${threadId}/postIds`).get()).val() || {}
+          const postIds = Object.keys(postIdsObj)
+
+          // 3. Batch fetch only those posts
+          const postsSnapArr = await Promise.all(postIds.map(id => db.ref(`posts/${id}`).get()))
+          const threadPosts = {}
+          postsSnapArr.forEach((snap, i) => {
+            if (snap.exists()) threadPosts[postIds[i]] = snap.val()
+          })
+
+          // 4. Recursively find all descendants
           const postsToDelete = new Set()
-          const findReplies = (parentId) => {
-            Object.entries(allPosts).forEach(([id, post]) => {
+          function findReplies(parentId) {
+            Object.entries(threadPosts).forEach(([id, post]) => {
               if (post.parentId === parentId) {
                 postsToDelete.add(id)
                 findReplies(id)
@@ -193,14 +209,12 @@ export default async function handler(req, res) {
           }
           postsToDelete.add(postId)
           findReplies(postId)
-          // Remove posts and their references from threads/{threadId}/postIds
+
+          // 5. Prepare updates to delete posts and references
           const updates = {}
           for (const id of postsToDelete) {
-            const post = allPosts[id]
             updates[`posts/${id}`] = null
-            if (post && post.threadId) {
-              updates[`threads/${post.threadId}/postIds/${id}`] = null
-            }
+            updates[`threads/${threadId}/postIds/${id}`] = null
           }
           await db.ref().update(updates)
           return res.status(200).json({ success: true, deleted: Array.from(postsToDelete) })
