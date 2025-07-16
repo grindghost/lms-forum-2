@@ -505,7 +505,7 @@ function stopEditing() {
           />
         </div>
         <!-- No Posts Message -->
-        <div v-else-if="postsLoaded && renderPosts().length === 0" class="text-center py-12">
+        <div v-else-if="postsLoaded && renderPosts().length === 0" class="text-center py-4">
           <div class="max-w-md mx-auto">
             <div class="text-6xl mb-4">💬</div>
             <h3 class="text-xl font-semibold text-base-content mb-2">
