@@ -1,10 +1,8 @@
 <script setup>
 import { onMounted, ref, computed, watch, defineComponent, h, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { db } from '@/firebase'
-import { ref as dbRef, onValue, push, serverTimestamp, update, get, remove } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
-import { decryptText, encryptText, deterministicEncryptText, encryptUser, decryptUser } from '@/utils/encryption'
+// Encryption utilities removed; backend now handles encryption
 import { sanitizeHTML } from '@/utils/sanitize'
 import RichEditor from '@/components/RichEditor.vue'
 import PostItem from '@/components/PostItem.vue'
@@ -14,6 +12,15 @@ import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import NewPostModal from '@/components/NewPostModal.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
+import { getThread } from '@/services/getThread'
+import { getPosts } from '@/services/getPosts'
+import { createPost } from '@/services/createPost'
+import { likePost } from '@/services/likePost'
+import { softDeletePost } from '@/services/softDeletePost'
+import { restorePost } from '@/services/restorePost'
+import { adminDeletePost } from '@/services/adminDeletePost'
+import { updatePost } from '@/services/updatePost'
+import YellowSpinner from '@/components/YellowSpinner.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -35,6 +42,10 @@ const showDeletedPostToast = ref(false)
 
 const lastCreatedPostId = ref(null)
 
+const showErrorToast = ref(false)
+const errorMessage = ref('')
+const previousPosts = ref([])
+
 const openNewPostModal = () => {
   replyingTo.value = null
   showNewPostModal.value = true
@@ -54,24 +65,19 @@ const checkPostExists = (postId) => {
   }
 }
 
+const isLoading = ref(true)
 
-const fetchThread = () => {
-  onValue(dbRef(db, `threads/${threadId}`), (snapshot) => {
-    const thread = snapshot.val()
-    threadData.value = thread
-    threadTitle.value = thread?.title || $t('thread.untitled')
-  })
+const fetchThread = async () => {
+  isLoading.value = true
+  const data = await getThread(threadId)
+  threadData.value = data
+  threadTitle.value = data?.title || $t('thread.untitled')
 }
 
-const fetchPosts = () => {
-  onValue(dbRef(db, 'posts'), (snapshot) => {
-    const all = snapshot.val() || {}
-
-    posts.value = Object.entries(all)
-      .map(([id, post]) => ({ id, ...post }))
-      .filter((p) => String(p.threadId) === String(threadId))
-      .sort((a, b) => a.createdAt - b.createdAt)
-  })
+const fetchPosts = async () => {
+  const all = await getPosts(threadId)
+  posts.value = all.sort((a, b) => a.createdAt - b.createdAt)
+  isLoading.value = false
 }
 
 const showReplyEditor = (postId) => {
@@ -86,139 +92,116 @@ const cancelReply = () => {
 
 const reply = async (parentId = null) => {
   if (!newReply.value.trim()) return
-
-  const encrypted = encryptText(sanitizeHTML(newReply.value))
-  const encryptedAuthor = encryptUser(store.currentUser)
-
-  const postRef = await push(dbRef(db, 'posts'), {
+  const tempId = 'temp-' + Date.now()
+  // Optimistically add post
+  const optimisticPost = {
+    id: tempId,
     threadId,
-    parentId: parentId ?? null, // ensure null, not undefined
-    content: encrypted,
-    author: encryptedAuthor,
-    createdAt: serverTimestamp(),
+    parentId: parentId ?? null,
+    content: sanitizeHTML(newReply.value),
+    author: store.currentUser,
+    createdAt: Date.now(),
+    deleted: false,
     likes: 0,
     likedBy: [],
-    deleted: false
-  })
-  
-  lastCreatedPostId.value = postRef.key
-  console.log('Last created post ID:', lastCreatedPostId.value)
-
+    updatedAt: Date.now()
+  }
+  posts.value.push(optimisticPost)
+  lastCreatedPostId.value = tempId
+  const oldReply = newReply.value
   newReply.value = ''
   replyingTo.value = null
+  try {
+    const created = await createPost({
+      threadId,
+      parentId: parentId ?? null,
+      content: optimisticPost.content,
+      author: store.currentUser
+    })
+    // Merge real post data with optimistic one
+    const idx = posts.value.findIndex(p => p.id === tempId)
+    if (idx !== -1) {
+      posts.value[idx] = { ...posts.value[idx], ...created }
+      lastCreatedPostId.value = posts.value[idx].id
+    }
+  } catch (e) {
+    posts.value = posts.value.filter(p => p.id !== tempId)
+    errorMessage.value = $t('thread.createPostError') || 'Failed to create post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
-const likePost = (postId, currentLikes, likedBy = []) => {
-  const deterministicUserEmail = deterministicEncryptText(store.currentUser.email)
-  const hasLiked = likedBy.includes(deterministicUserEmail)
-  const postRef = dbRef(db, `posts/${postId}`)
+const likePostHandler = async (postId, currentLikes, likedBy = []) => {
+  const idx = posts.value.findIndex(p => p.id === postId)
+  if (idx === -1) return
+  const userEmail = store.currentUser.email
+  const hasLiked = likedBy.includes(userEmail)
+  // Optimistically update
+  const oldLikes = posts.value[idx].likes
+  const oldLikedBy = [...posts.value[idx].likedBy]
   if (hasLiked) {
-    // Remove like
-    update(postRef, {
-      likes: Math.max(0, currentLikes - 1),
-      likedBy: likedBy.filter(email => email !== deterministicUserEmail)
-    })
+    posts.value[idx].likes = oldLikes - 1
+    posts.value[idx].likedBy = oldLikedBy.filter(e => e !== userEmail)
   } else {
-    // Add like
-    update(postRef, {
-      likes: (currentLikes || 0) + 1,
-      likedBy: [...(likedBy || []), deterministicUserEmail]
+    posts.value[idx].likes = oldLikes + 1
+    posts.value[idx].likedBy = [...oldLikedBy, userEmail]
+  }
+  try {
+    await likePost({
+      postId,
+      userEmail,
+      likedBy: posts.value[idx].likedBy,
+      currentLikes: posts.value[idx].likes
     })
+  } catch (e) {
+    posts.value[idx].likes = oldLikes
+    posts.value[idx].likedBy = oldLikedBy
+    errorMessage.value = $t('thread.likePostError') || 'Failed to like post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
   }
 }
 
-const deletePost = async (postId) => {
+const deletePost = async (postId, content) => {
+  const idx = posts.value.findIndex(p => p.id === postId)
+  if (idx === -1) return
+  const oldDeleted = posts.value[idx].deleted
+  // Optimistically mark as deleted
+  posts.value[idx].deleted = true
   try {
-    const postRef = dbRef(db, `posts/${postId}`)
-    const snapshot = await get(postRef)
-    const post = snapshot.val()
-    
-    if (post && !post.deleted) {
-      await update(postRef, {
-        originalContent: post.content, // Store original content
-        content: encryptText('[deleted]'),
-        deleted: true
-      })
-    }
-  } catch (error) {
-    console.error('Error deleting post:', error)
+    await softDeletePost({ postId, content })
+  } catch (e) {
+    posts.value[idx].deleted = oldDeleted
+    errorMessage.value = $t('thread.deletePostError') || 'Failed to delete post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
   }
 }
 
-const restorePost = async (postId) => {
-  try {
-    // Get the current post data
-    const postRef = dbRef(db, `posts/${postId}`)
-    const snapshot = await get(postRef)
-    const post = snapshot.val()
-    
-    console.log('Restoring post:', postId, post) // Debug log
-    
-    if (post && post.deleted) {
-      // If we have original content, restore it
-      if (post.originalContent) {
-        console.log('Restoring with original content')
-        await update(postRef, {
-          content: post.originalContent,
-          deleted: false,
-          originalContent: null
-        })
-      } else {
-        // For posts deleted before this feature, check if current content is not the standard deleted message
-        const currentContent = decryptText(post.content)
-        if (currentContent !== '[deleted]') {
-          console.log('Restoring with current content (not standard deleted message)')
-          await update(postRef, {
-            deleted: false
-          })
-        } else {
-          console.log('Setting placeholder content for old deleted post')
-          await update(postRef, {
-            content: encryptText('[Content was deleted]'),
-            deleted: false
-          })
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error restoring post:', error)
-  }
+const restorePostHandler = async (postId, originalContent) => {
+  await restorePost({ postId, originalContent })
+  await fetchPosts()
 }
 
-// Admin function to permanently delete a post and all its replies
-const adminDeletePost = async (postId) => {
+const adminDeletePostHandler = async (postId) => {
+  await adminDeletePost({ postId })
+  await fetchPosts()
+}
+
+const updatePostHandler = async (postId, content) => {
+  const idx = posts.value.findIndex(p => p.id === postId)
+  if (idx === -1) return
+  const oldContent = posts.value[idx].content
+  // Optimistically update
+  posts.value[idx].content = content
   try {
-    // Get all posts to find replies
-    const postsSnapshot = await get(dbRef(db, 'posts'))
-    const allPosts = postsSnapshot.val() || {}
-    
-    // Find all posts that need to be deleted (the post and all its replies)
-    const postsToDelete = new Set()
-    const findReplies = (parentId) => {
-      Object.entries(allPosts).forEach(([id, post]) => {
-        if (post.parentId === parentId) {
-          postsToDelete.add(id)
-          findReplies(id) // Recursively find replies to replies
-        }
-      })
-    }
-    
-    // Add the main post and find all its replies
-    postsToDelete.add(postId)
-    findReplies(postId)
-    
-    console.log('Deleting posts:', Array.from(postsToDelete))
-    
-    // Delete all posts in parallel
-    const deletePromises = Array.from(postsToDelete).map(id => 
-      remove(dbRef(db, `posts/${id}`))
-    )
-    
-    await Promise.all(deletePromises)
-    console.log('Successfully deleted', postsToDelete.size, 'posts')
-    
-  } catch (error) {
-    console.error('Error deleting post and replies:', error)
+    await updatePost({ postId, content })
+  } catch (e) {
+    posts.value[idx].content = oldContent
+    errorMessage.value = $t('thread.editPostError') || 'Failed to edit post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
   }
 }
 
@@ -237,11 +220,11 @@ const nestedPosts = computed(() => {
 const threadAuthor = computed(() => {
   // If there are posts, use the first post's author
   if (posts.value.length > 0 && posts.value[0]?.author) {
-    return decryptUser(posts.value[0].author).name
+    return posts.value[0].author.name
   }
   // Otherwise, use the thread's author
   if (threadData.value?.author) {
-    return decryptUser(threadData.value.author).name
+    return threadData.value.author.name
   }
   return null
 })
@@ -291,32 +274,29 @@ const renderPosts = (parentId = null, depth = 0) => {
   }))
 }
 
-onMounted(() => {
-  fetchThread()
-  fetchPosts()
+onMounted(async () => {
+  await fetchThread()
+  await fetchPosts()
 })
 
 // Watch for route changes and re-fetch data
 watch(
   () => route.params.id,
-  (newId, oldId) => {
+  async (newId, oldId) => {
     if (newId !== oldId) {
-      fetchThread()
-      fetchPosts()
+      await fetchThread()
+      await fetchPosts()
     }
   }
 )
 
 // Watch for hash changes to detect deleted posts
 watch(
-  () => route.hash,
-  (newHash) => {
-    if (newHash) {
+  () => [route.hash, isLoading.value],
+  ([newHash, loading]) => {
+    if (!loading && newHash) {
       const postId = newHash.split('#').pop()
-      // Check after a short delay to ensure posts are loaded
-      setTimeout(() => {
-        checkPostExists(postId)
-      }, 500)
+      checkPostExists(postId)
     }
   },
   { immediate: true }
@@ -346,10 +326,10 @@ function goToCallback() {
 // Add a computed for threadAuthorEmail
 const threadAuthorEmail = computed(() => {
   if (posts.value.length > 0 && posts.value[0]?.author) {
-    return decryptUser(posts.value[0].author).email
+    return posts.value[0].author.email
   }
   if (threadData.value?.author) {
-    return decryptUser(threadData.value.author).email
+    return threadData.value.author.email
   }
   return ''
 })
@@ -360,7 +340,9 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
 
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16">
-    <div class="max-w-5xl mx-auto px-4">
+    <ErrorToast :show="showErrorToast" :message="errorMessage" />
+    <YellowSpinner v-if="isLoading" />
+    <div v-else class="max-w-5xl mx-auto px-4">
       <!-- Thread Header -->
       <div class="mb-6 border-b pb-4">
         <h1 class="text-[1.5rem] font-regular font-overpass text-base-content">
@@ -412,18 +394,16 @@ const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostM
           :depth="post.depth"
           :renderPosts="renderPosts"
           :showReplyEditor="showReplyEditor"
-          :likePost="likePost"
+          :likePost="likePostHandler"
           :deletePost="deletePost"
-          :restorePost="restorePost"
+          :restorePost="restorePostHandler"
           :reply="reply"
           :cancelReply="cancelReply"
           :store="store"
           :RichEditor="RichEditor"
           :sanitizeHTML="sanitizeHTML"
-          :decryptText="decryptText"
-          :encryptText="encryptText"
-          :deterministicEncryptText="deterministicEncryptText"
-          :adminDeletePost="adminDeletePost"
+          :adminDeletePost="adminDeletePostHandler"
+          :updatePost="updatePostHandler"
           :charLimit="store.charLimit"
           @update:newReply="val => newReply = val"
         />

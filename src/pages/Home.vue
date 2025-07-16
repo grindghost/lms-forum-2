@@ -1,15 +1,21 @@
 <script setup>
 import { onMounted, ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { db } from '@/firebase'
-import { push, ref as dbRef, serverTimestamp, onValue, update, remove, get } from 'firebase/database'
 import { useForumStore } from '@/stores/forumStore'
-import { encryptText, decryptText, encryptUser, decryptUser } from '@/utils/encryption'
 import { formatDate, formatDateShort, formatDateRelative } from '@/utils/dateFormat'
 import { useI18n } from 'vue-i18n'
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import DeleteThreadModal from '@/components/DeleteThreadModal.vue'
+import { getThreads } from '@/services/getThreads'
+import { createThread } from '@/services/createThread'
+import { updateThread } from '@/services/updateThread'
+import { deleteThread } from '@/services/deleteThread'
+import { updateSortOrder } from '@/services/updateSortOrder'
+import { getAllPosts } from '@/services/getPosts'
+import YellowSpinner from '@/components/YellowSpinner.vue'
+import ErrorToast from '@/components/ErrorToast.vue'
+import { updateThreadSubscribers } from '@/services/toggleThreadSubscription'
 
 const { t: $t, locale } = useI18n()
 
@@ -17,6 +23,9 @@ const store = useForumStore()
 const newTitle = ref('')
 const threads = ref([])
 const router = useRouter()
+const isLoading = ref(true)
+const showErrorToast = ref(false)
+const errorMessage = ref('')
 
 // Computed property for formatted dates that reacts to locale changes
 const formatThreadDate = (date) => {
@@ -37,13 +46,10 @@ const draggedThread = ref(null)
 const draggedOverThread = ref(null)
 const isDragging = ref(false)
 const dropPosition = ref(null) // 'above' or 'below'
+const previousThreads = ref([])
 
 // Track posts for last poster info
 const posts = ref({})
-
-onValue(dbRef(db, 'posts'), (snapshot) => {
-  posts.value = snapshot.val() || {}
-})
 
 // Helper to get last post info for a thread
 function getLastPostInfo(threadId) {
@@ -51,8 +57,8 @@ function getLastPostInfo(threadId) {
   if (threadPosts.length === 0) return null
   const last = threadPosts.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
   return {
-    name: decryptUser(last.author).name,
-    email: decryptUser(last.author).email,
+    name: last.author?.name,
+    email: last.author?.email,
     date: last.createdAt
   }
 }
@@ -60,18 +66,33 @@ function getLastPostInfo(threadId) {
 // Subscribe logic
 function isSubscribed(thread) {
   if (!thread.subscribers) return false
-  return thread.subscribers.includes(store.currentUser.email)
+  return thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
 }
 async function toggleSubscribe(thread) {
-  const threadRef = dbRef(db, `threads/${thread.id}`)
-  const subscribers = Array.isArray(thread.subscribers) ? [...thread.subscribers] : []
-  const idx = subscribers.indexOf(store.currentUser.email)
-  if (idx === -1) {
-    subscribers.push(store.currentUser.email)
+  if (!thread.subscribers) thread.subscribers = []
+  // Check if already subscribed (by email)
+  const isSubscribedNow = thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
+  // Optimistically update
+  const oldSubscribers = [...thread.subscribers]
+  if (isSubscribedNow) {
+    thread.subscribers = thread.subscribers.filter(sub => (typeof sub === 'string' ? sub : sub.email) !== store.currentUser.email)
   } else {
-    subscribers.splice(idx, 1)
+    thread.subscribers = [...thread.subscribers, store.currentUser.email]
   }
-  await update(threadRef, { subscribers })
+  // Remove empty strings before sending to backend
+  thread.subscribers = thread.subscribers.filter(email => !!email)
+  try {
+    const res = await updateThreadSubscribers({
+      threadId: thread.id,
+      subscribers: thread.subscribers
+    })
+    thread.subscribers = res.subscribers
+  } catch (e) {
+    thread.subscribers = oldSubscribers
+    errorMessage.value = $t('home.subscribeError') || 'Failed to update subscription'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 // Load config
@@ -85,26 +106,41 @@ const goToThread = (id) => {
 }
 
 // Create new thread
-const createThread = async () => {
+const createThreadHandler = async () => {
   if (!newTitle.value.trim() || !store.groupId) return
-
-  console.log('📝 Creating thread:', {
+  const tempId = 'temp-' + Date.now()
+  // Optimistically add thread with all required fields
+  const optimisticThread = {
+    id: tempId,
     title: newTitle.value,
+    author: store.currentUser,
     groupId: store.groupId,
-    user: store.currentUser
-  })
-
-  const encryptedAuthor = encryptUser(store.currentUser)
-
-  await push(dbRef(db, 'threads'), {
-    title: newTitle.value,
-    createdAt: serverTimestamp(),
-    author: encryptedAuthor,
-    group: store.groupId,
-    sortOrder: Date.now() // Use timestamp as initial sort order
-  })
-
+    messageCount: 0,
+    createdAt: Date.now(),
+    sortOrder: threads.value.length ? Math.max(...threads.value.map(t => t.sortOrder || 0)) + 1000 : 1000,
+    subscribers: [],
+    readOnly: false
+  }
+  threads.value.unshift(optimisticThread)
+  const oldTitle = newTitle.value
   newTitle.value = ''
+  try {
+    const created = await createThread({
+      title: oldTitle,
+      author: store.currentUser,
+      groupId: store.groupId
+    })
+    // Merge real thread data with optimistic one to avoid missing fields
+    const idx = threads.value.findIndex(t => t.id === tempId)
+    if (idx !== -1) {
+      threads.value[idx] = { ...threads.value[idx], ...created }
+    }
+  } catch (e) {
+    threads.value = threads.value.filter(t => t.id !== tempId)
+    errorMessage.value = $t('home.createThreadError') || 'Failed to create thread'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 // Edit thread functions
@@ -120,20 +156,27 @@ const cancelEditThread = () => {
 
 const saveEditThread = async (threadId) => {
   if (!editingThreadTitle.value.trim()) return
-  
-  await update(dbRef(db, `threads/${threadId}`), {
-    title: editingThreadTitle.value.trim()
-  })
-  
+  const idx = threads.value.findIndex(t => t.id === threadId)
+  if (idx === -1) return
+  const oldTitle = threads.value[idx].title
+  // Optimistically update
+  threads.value[idx].title = editingThreadTitle.value.trim()
   editingThreadId.value = null
   editingThreadTitle.value = ''
+  try {
+    await updateThread({ id: threadId, title: threads.value[idx].title })
+  } catch (e) {
+    // Revert
+    threads.value[idx].title = oldTitle
+    errorMessage.value = $t('home.editThreadError') || 'Failed to edit thread'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const toggleReadOnly = async (threadId, isReadOnly) => {
   try {
-    await update(dbRef(db, `threads/${threadId}`), {
-      readOnly: isReadOnly
-    })
+    await updateThread({ id: threadId, readOnly: isReadOnly })
   } catch (error) {
     console.error('Error toggling read-only status:', error)
   }
@@ -185,86 +228,38 @@ const handleDragLeave = (e) => {
 const handleDrop = async (e, targetThread) => {
   if (!store.isAdmin() || !isDragging.value || !draggedThread.value) return
   e.preventDefault()
-  
   const draggedThreadId = draggedThread.value.id
   const targetThreadId = targetThread.id
-  
   if (draggedThreadId === targetThreadId) return
-  
   try {
-    // Get current threads to calculate new sort order
+    // Save previous state for revert
+    previousThreads.value = threads.value.map(t => ({ ...t }))
     const currentThreads = [...threads.value]
     const draggedIndex = currentThreads.findIndex(t => t.id === draggedThreadId)
     const targetIndex = currentThreads.findIndex(t => t.id === targetThreadId)
-    
-    console.log('Drop Debug:', {
-      draggedThreadId,
-      targetThreadId,
-      draggedIndex,
-      targetIndex,
-      currentThreads: currentThreads.map(t => ({ id: t.id, title: t.title }))
-    })
-    
     if (draggedIndex === -1 || targetIndex === -1) return
-    
-    // Determine drop position based on mouse position relative to target
-    const rect = e.currentTarget.getBoundingClientRect()
-    const dropY = e.clientY
-    const targetCenterY = rect.top + rect.height / 2
-    
-    // Use a more intuitive drop detection
-    let dropAbove
-    if (targetIndex === 0) {
-      // For the first item, use a larger "drop above" zone (top 60% of the card)
-      const topZone = rect.top + rect.height * 0.6
-      dropAbove = dropY < topZone
-    } else {
-      // For other items, use the center line
-      dropAbove = dropY < targetCenterY
-    }
-    
-    console.log('Drop Position:', { dropY, targetCenterY, dropAbove, targetIndex })
-    
-    // Use a simpler approach: remove and insert
     const newThreads = [...currentThreads]
-    const [draggedThread] = newThreads.splice(draggedIndex, 1)
-    
-    let insertIndex
-    if (dropAbove) {
-      // Drop above: insert before target
-      insertIndex = targetIndex
-    } else {
-      // Drop below: insert after target
-      insertIndex = targetIndex + 1
-    }
-    
-    // Adjust insert index if we removed an item before the target
-    if (draggedIndex < targetIndex) {
-      insertIndex -= 1
-    }
-    
-    newThreads.splice(insertIndex, 0, draggedThread)
-    
-    console.log('New Order:', newThreads.map(t => ({ id: t.id, title: t.title })))
-    
-    // Calculate new sort orders
-    const sortOrderStep = 1000 // Gap between sort orders
+    const [draggedThreadObj] = newThreads.splice(draggedIndex, 1)
+    let insertIndex = dropPosition.value === 'above' ? targetIndex : targetIndex + 1
+    if (draggedIndex < targetIndex) insertIndex -= 1
+    newThreads.splice(insertIndex, 0, draggedThreadObj)
+    const sortOrderStep = 1000
     const updates = {}
-    
     newThreads.forEach((thread, index) => {
       const newSortOrder = (index + 1) * sortOrderStep
       updates[`threads/${thread.id}/sortOrder`] = newSortOrder
+      thread.sortOrder = newSortOrder
     })
-    
-    console.log('Updates:', updates)
-    
-    // Update all affected threads
-    await update(dbRef(db), updates)
-    
+    // Optimistically update UI
+    threads.value = newThreads
+    await updateSortOrder({ updates })
   } catch (error) {
-    console.error('Error reordering threads:', error)
+    // Revert UI
+    threads.value = previousThreads.value.map(t => ({ ...t }))
+    errorMessage.value = $t('home.sortOrderError') || 'Failed to update sort order'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
   } finally {
-    // Reset drag state
     draggedThread.value = null
     draggedOverThread.value = null
     isDragging.value = false
@@ -291,83 +286,56 @@ const cancelDeleteThread = () => {
   threadToDelete.value = null
 }
 
-const deleteThread = async () => {
+// Rename local deleteThread function to handleDeleteThread
+const handleDeleteThread = async () => {
   if (!threadToDelete.value) return
-  
+  // Optimistically remove thread
+  const deletedId = threadToDelete.value.id
+  const previous = threads.value.map(t => ({ ...t }))
+  threads.value = threads.value.filter(t => t.id !== deletedId)
+  showDeleteConfirm.value = false
+  threadToDelete.value = null
   try {
-    // Delete the thread
-    await remove(dbRef(db, `threads/${threadToDelete.value.id}`))
-    
-    // Delete all posts in this thread
-    const postsRef = dbRef(db, 'posts')
-    const postsSnapshot = await get(postsRef)
-    const allPosts = postsSnapshot.val() || {}
-    
-    const deletePromises = []
-    Object.entries(allPosts).forEach(([postId, post]) => {
-      if (post.threadId === threadToDelete.value.id) {
-        deletePromises.push(remove(dbRef(db, `posts/${postId}`)))
-      }
-    })
-    
-    await Promise.all(deletePromises)
-    
-    showDeleteConfirm.value = false
-    threadToDelete.value = null
-  } catch (error) {
-    console.error('Error deleting thread:', error)
+    await deleteThread({ id: deletedId })
+  } catch (e) {
+    // Revert UI
+    threads.value = previous
+    errorMessage.value = $t('home.deleteThreadError') || 'Failed to delete thread'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
   }
 }
 
-// Load threads and posts once config and groupId are ready
+// FETCH THREADS AND POSTS
+const fetchThreadsAndPosts = async () => {
+  if (!store.groupId) return
+  isLoading.value = true
+  const threadsData = await getThreads(store.groupId)
+  threads.value = threadsData.sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+    return b.createdAt - a.createdAt
+  })
+  // Fetch all posts for last post info
+  const postsData = await getAllPosts()
+  posts.value = postsData.reduce((acc, post) => {
+    acc[post.id] = post
+    return acc
+  }, {})
+  // Set messageCount for each thread
+  threads.value.forEach(thread => {
+    thread.messageCount = Object.values(posts.value).filter(
+      p => p.threadId === thread.id && !p.deleted
+    ).length;
+  });
+  isLoading.value = false
+}
+
+// INIT FETCH
 watch(
   () => [store.config, store.groupId],
-  ([config, groupId]) => {
+  async ([config, groupId]) => {
     if (!config || !groupId) return
-
-    // Load threads
-    onValue(dbRef(db, 'threads'), (threadSnapshot) => {
-      const allThreads = threadSnapshot.val() || {}
-
-      // Load posts to count messages per thread
-      onValue(dbRef(db, 'posts'), (postSnapshot) => {
-        const allPosts = postSnapshot.val() || {}
-        
-        // Count posts per thread
-        const postCounts = {}
-        Object.values(allPosts).forEach(post => {
-          if (post.threadId) {
-            postCounts[post.threadId] = (postCounts[post.threadId] || 0) + 1
-          }
-        })
-
-        const allThreadsArray = Object.entries(allThreads)
-          .map(([id, thread]) => ({ 
-            id, 
-            ...thread, 
-            messageCount: postCounts[id] || 0,
-            sortOrder: thread.sortOrder || 0 // Default to 0 for existing threads
-          }))
-        
-        // Filter by groupId
-        const filteredThreads = allThreadsArray.filter((t) => t.group === store.groupId)
-        
-        console.log('🔍 Thread filtering:', {
-          totalThreads: allThreadsArray.length,
-          groupId: store.groupId,
-          filteredCount: filteredThreads.length,
-          allGroups: [...new Set(allThreadsArray.map(t => t.group))]
-        })
-        
-        threads.value = filteredThreads.sort((a, b) => {
-          // First sort by sortOrder (lower numbers first), then by creation date
-          if (a.sortOrder !== b.sortOrder) {
-            return a.sortOrder - b.sortOrder
-          }
-          return b.createdAt - a.createdAt
-        })
-      })
-    })
+    await fetchThreadsAndPosts()
   },
   { immediate: true }
 )
@@ -375,20 +343,24 @@ watch(
 
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
-    <main class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <ErrorToast :show="showErrorToast" :message="errorMessage" />
+    <YellowSpinner v-if="isLoading" />
+    <main v-else class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <!-- Create Thread Section -->
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">
         <input
           v-model="newTitle"
           :placeholder="$t('home.threadTitle')"
           class="input input-bordered w-full"
         />
-        <button class="btn btn-primary w-full sm:w-auto" @click="createThread">
+        <button class="btn btn-primary w-full sm:w-auto" @click="createThreadHandler">
           {{ $t('home.createThread') }}
         </button>
       </div>
 
-      <div class="flex items-center justify-between border-b pb-2">
-        <h1 class="text-2xl font-bold text-base-content font-overpass">
+      <!-- Header Section -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-2 gap-2">
+        <h1 class="text-xl sm:text-2xl font-bold text-base-content font-overpass">
           {{ $t('home.forumThreads') }}
         </h1>
         <div class="text-sm text-gray-500">
@@ -396,16 +368,17 @@ watch(
         </div>
       </div>
 
+      <!-- No Threads Message -->
       <div v-if="threads.length === 0" class="text-center text-gray-500 mt-8">
         {{ $t('home.noThreads') }}
       </div>
-      
 
-      <div class="grid gap-4">
+      <!-- Thread Cards Grid -->
+      <div class="grid gap-3 sm:gap-4">
         <div
           v-for="thread in threads"
           :key="thread.id"
-          class="rounded-lg bg-base-100 shadow hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer relative"
+          class="rounded-lg bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-300 hover:border-primary cursor-pointer relative overflow-hidden"
           :class="{
             'opacity-50': isDragging && draggedThread?.id === thread.id,
             'border-dashed border-primary bg-primary/5': draggedOverThread?.id === thread.id,
@@ -422,16 +395,18 @@ watch(
         >
           <!-- Subscribe Star -->
           <div v-if="isSubscribed(thread)" class="absolute top-2 right-2 z-10">
-            <div class="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
-              <span class="text-yellow-600 text-sm">⭐</span>
+            <div class="w-5 h-5 sm:w-6 sm:h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
+              <span class="text-yellow-600 text-xs sm:text-sm">⭐</span>
             </div>
           </div>
 
-          <div class="card-body pb-4">
-            <!-- Thread Title Section -->
-            <div class="flex items-start justify-between">
-              <div class="flex-1">
-                <div v-if="editingThreadId === thread.id" class="flex items-center gap-2" @click.stop>
+          <!-- Main Card Content -->
+          <div class="p-4 sm:p-6">
+            <!-- Thread Title and Badges Row -->
+            <div class="flex items-start justify-between gap-3 mb-3">
+              <div class="flex-1 min-w-0">
+                <!-- Edit Mode -->
+                <div v-if="editingThreadId === thread.id" class="flex flex-col sm:flex-row items-start sm:items-center gap-2" @click.stop>
                   <input
                     v-model="editingThreadTitle"
                     class="input input-bordered input-sm flex-1"
@@ -439,48 +414,62 @@ watch(
                     @keyup.esc="cancelEditThread"
                     ref="editInput"
                   />
-                  <button class="btn btn-sm btn-primary" @click="saveEditThread(thread.id)">
-                    {{ $t('home.save') }}
-                  </button>
-                  <button class="btn btn-sm btn-outline" @click="cancelEditThread">
-                    {{ $t('home.cancel') }}
-                  </button>
+                  <div class="flex gap-1">
+                    <button class="btn btn-sm btn-primary" @click="saveEditThread(thread.id)">
+                      {{ $t('home.save') }}
+                    </button>
+                    <button class="btn btn-sm btn-outline" @click="cancelEditThread">
+                      {{ $t('home.cancel') }}
+                    </button>
+                  </div>
                 </div>
-                <h2 v-else class="card-title font-overpass font-[400]">
-                  <div v-if="store.isAdmin()" class="mr-2 text-gray-400 cursor-grab active:cursor-grabbing" :title="$t('home.dragToReorder')">
+                
+                <!-- Display Mode -->
+                <div v-else class="flex items-start gap-2">
+                  <!-- Drag Handle (Admin Only) -->
+                  <div v-if="store.isAdmin()" class="text-gray-400 cursor-grab active:cursor-grabbing flex-shrink-0 text-xl" :title="$t('home.dragToReorder')">
                     ⋮⋮
                   </div>
-                  {{ thread.title }}
-                  <div class="badge badge-primary badge-outline">
-                    {{ thread.messageCount }} {{ $t('home.messages') }}
-                  </div>
-                  <div v-if="thread.readOnly" class="badge badge-warning badge-outline" title="Read-only thread">
-                    🔒
-                  </div>
-                </h2>
+                  
+                  <!-- Thread Title -->
+                  <h2 class="card-title font-overpass font-[400] text-base sm:text-lg leading-tight break-words mt-[0.3rem]">
+                    {{ thread.title }}
+                  </h2>
+                </div>
+              </div>
+              
+              <!-- Badges -->
+              <div class="flex sm:flex-row gap-1 sm:gap-2 flex-shrink-0">
+                <div class="badge badge-primary badge-outline text-xs">
+                  {{ thread.messageCount }} {{ $t('home.messages') }}
+                </div>
+                <div v-if="thread.readOnly" class="badge badge-warning badge-outline text-xs" title="Read-only thread">
+                  🔒
+                </div>
               </div>
             </div>
 
-            <div class="flex items-center text-sm text-gray-500 gap-3 mt-1">
-              <AvatarInitial :name="decryptUser(thread.author).name" />
-              <UserName :name="decryptUser(thread.author).name" :email="decryptUser(thread.author).email" />
-              <span>•</span>
-              <span>
+            <!-- Author and Date Info -->
+            <div class="flex items-center text-sm text-gray-500 gap-2 mb-2">
+              <AvatarInitial :name="thread.author?.name || ''" class="w-5 h-5 sm:w-6 sm:h-6" />
+              <UserName :name="thread.author?.name || ''" :email="thread.author?.email || ''" class="text-sm" />
+              <span class="hidden sm:inline">•</span>
+              <span class="text-xs sm:text-sm">
                 {{ formatThreadDate(thread.createdAt) }}
               </span>
             </div>
             
-            <!-- Last post info -->
-            <div v-if="getLastPostInfo(thread.id)" class="flex items-center text-xs text-gray-400 gap-2 mt-1">
+            <!-- Last Post Info -->
+            <div v-if="getLastPostInfo(thread.id)" class="flex flex-col sm:flex-row items-start sm:items-center text-xs text-gray-400 gap-1 mb-3">
               <span>{{ $t('home.lastPostBy') }}</span>
-              <UserName :name="getLastPostInfo(thread.id).name" :email="getLastPostInfo(thread.id).email" />
-              <span>•</span>
-              <span>{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
+              <UserName :name="getLastPostInfo(thread.id)?.name || ''" :email="getLastPostInfo(thread.id)?.email || ''" class="text-xs" />
+              <span class="hidden sm:inline">•</span>
+              <span class="text-xs">{{ formatThreadDate(getLastPostInfo(thread.id).date) }}</span>
             </div>
 
             <!-- Bottom Controls Row -->
-            <div class="flex items-center justify-between mt-4 pt-3 border-t border-base-200">
-              <!-- Subscribe Checkbox -->
+            <div class="flex flex-row justify-between gap-3 pt-3 border-t border-base-200">
+              <!-- Subscribe Section -->
               <div class="flex items-center gap-2" @click.stop>
                 <input
                   type="checkbox"
@@ -494,11 +483,11 @@ watch(
                 </label>
               </div>
 
-              <!-- Admin Controls Group -->
+              <!-- Admin Controls -->
               <div v-if="store.isAdmin()" class="flex items-center gap-2" @click.stop>
                 <!-- Read-only Toggle -->
-                <div class="flex items-center gap-2">
-                  <label class="label cursor-pointer gap-2">
+                <div class="flex items-center gap-1">
+                  <label class="label cursor-pointer gap-1">
                     <span class="label-text text-xs">{{ $t('home.readOnly') }}</span>
                     <input
                       type="checkbox"
@@ -540,7 +529,7 @@ watch(
       :show="showDeleteConfirm"
       :threadTitle="threadToDelete?.title || ''"
       @cancel="cancelDeleteThread"
-      @confirm="deleteThread"
+      @confirm="handleDeleteThread"
     />
   </div>
 </template>

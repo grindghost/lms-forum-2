@@ -23,7 +23,9 @@
       "group": "Groupe",
       "subscribe": "S'abonner",
       "unsubscribe": "Se désabonner",
-      "lastPostBy": "Dernier message par"
+      "lastPostBy": "Dernier message par",
+      "createThreadError": "Échec de la création de la discussion. Veuillez réessayer.",
+      "subscribeError": "Échec de la mise à jour de l'abonnement. Veuillez réessayer."
     },
     "thread": {
       "reply": "Répondre",
@@ -50,7 +52,8 @@
       "confirmDeletePostMessage": "Êtes-vous sûr de vouloir supprimer définitivement ce message ?",
       "confirmDeletePostWarning": "Cette action supprimera définitivement le message et toutes ses réponses de la base de données. Cette action est irréversible.",
       "postDeleted": "Ce message a été supprimé et n'est plus disponible.",
-      "deletePermanently": "Supprimer définitivement"
+      "deletePermanently": "Supprimer définitivement",
+      "deletePostError": "Échec de la suppression du message. Veuillez réessayer."
     },
     "common": {
       "by": "par",

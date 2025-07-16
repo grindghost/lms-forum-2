@@ -18,6 +18,7 @@ import { useI18n } from 'vue-i18n'
 import { useForumStore } from '@/stores/forumStore'
 import { setLocale } from '@/i18n'
 
+
 const store = useForumStore()
 const router = useRouter()
 const { locale } = useI18n()

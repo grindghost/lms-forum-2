@@ -8,7 +8,7 @@
   >
     <div class="flex gap-2 w-full">
       <!-- Avatar -->
-      <AvatarInitial :name="decryptUser(post.author).name" class="mt-3" />
+      <AvatarInitial :name="post.author.name" class="mt-3" />
 
       <!-- Post Body -->
       <div
@@ -24,7 +24,7 @@
       >
         <!-- Meta Info -->
         <div class="text-sm text-base-content/60 mb-1 flex justify-between items-center gap-2">
-          <UserName :name="adminDisplayName" :email="decryptUser(post.author).email" />
+          <UserName :name="adminDisplayName" :email="post.author.email" />
           <div class="flex items-center gap-2">
             <span>{{ formattedDate }}</span>
             <span v-if="post.likes > 0" class="flex items-center gap-1">
@@ -68,7 +68,7 @@
                 <button class="btn btn-sm btn-outline" @click="cancelEdit">{{ $t('thread.cancel') }}</button>
               </div>
             </div>
-            <div v-else class="prose prose-sm max-w-none pb-2" v-html="sanitizeHTML(decryptText(post.content))"></div>
+            <div v-else class="prose prose-sm max-w-none" v-html="sanitizeHTML(post.content)"></div>
           </template>
         </div>
 
@@ -90,17 +90,17 @@
             👍 {{ post.likes }}
           </button>
           <button
-            v-if="store.isAdmin() || decryptUser(post.author).email === store.currentUser.email"
+            v-if="store.isAdmin() || post.author.email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-error"
-            @click="store.isAdmin() ? confirmDeletePost(post.id) : deletePost(post.id)"
+            @click="store.isAdmin() ? confirmDeletePost(post.id) : deletePost(post.id, post.content)"
             :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             {{ $t('thread.delete') }}
           </button>
           <button
-            v-if="decryptUser(post.author).email === store.currentUser.email"
+            v-if="post.author.email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-accent"
-            @click="startEditing(post.id, sanitizeHTML(decryptText(post.content)))"
+            @click="startEditing(post.id, post.content)"
             :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             {{ $t('thread.edit') }}
@@ -114,7 +114,7 @@
           :class="{ 'show-actions': isHovered || replyingTo === post.id }"
         >
           <button
-            v-if="decryptUser(post.author).email === store.currentUser.email"
+            v-if="post.author.email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-success"
             @click="restorePost(post.id)"
           >
@@ -122,7 +122,7 @@
           </button>
           <!-- Admin controls for deleted posts -->
           <button
-            v-if="store.isAdmin() && decryptUser(post.author).email !== store.currentUser.email"
+            v-if="store.isAdmin() && post.author.email !== store.currentUser.email"
             class="btn btn-xs btn-outline btn-success"
             @click="restorePost(post.id)"
           >
@@ -172,10 +172,10 @@
             :sanitizeHTML="sanitizeHTML"
             :decryptText="decryptText"
             :encryptText="encryptText"
-            :deterministicEncryptText="deterministicEncryptText"
             :adminDeletePost="adminDeletePost"
             :isAnyEditorOpen="isAnyEditorOpen"
             :editingPostId="editingPostId"
+            :updatePost="updatePost"
             @update:newReply="emit('update:newReply', $event)"
           />
         </div>
@@ -185,7 +185,7 @@
   <!-- Delete Confirmation Modal -->
   <DeletePostModal
     :show="showDeleteConfirm"
-    :postAuthor="decryptUser(props.post.author).name"
+    :postAuthor="post.author.name"
     :postDate="formattedDate"
     @cancel="cancelDeletePost"
     @confirm="executeDeletePost"
@@ -199,9 +199,7 @@ import { defineProps, defineEmits } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { formatDate } from '@/utils/dateFormat'
-import { decryptUser } from '@/utils/encryption'
-import { db } from '@/firebase'
-import { ref as dbRef, update, serverTimestamp } from 'firebase/database'
+// Encryption utilities removed; backend now handles encryption
 import AvatarInitial from '@/components/AvatarInitial.vue'
 import UserName from '@/components/UserName.vue'
 import CustomToast from '@/components/CustomToast.vue'
@@ -230,20 +228,18 @@ const props = defineProps({
   sanitizeHTML: Function,
   decryptText: Function,
   encryptText: Function,
-  deterministicEncryptText: Function,
   adminDeletePost: Function,
   class: String,
   isAnyEditorOpen: Boolean,
   editingPostId: [String, Number, null],
-  charLimit: Number
+  charLimit: Number,
+  updatePost: Function
 })
 
 const emit = defineEmits(['update:newReply'])
 
 const isLiked = computed(() =>
-  (props.post.likedBy || []).includes(
-    props.deterministicEncryptText(props.store.currentUser.email)
-  )
+  (props.post.likedBy || []).includes(props.store.currentUser.email)
 )
 
 const newReplyModel = computed({
@@ -401,11 +397,8 @@ function cancelEdit() {
 }
 
 async function saveEdit(postId) {
-  const encrypted = props.encryptText(props.sanitizeHTML(editingContent.value))
-  await update(dbRef(db, `posts/${postId}`), {
-    content: encrypted,
-    createdAt: serverTimestamp()
-  })
+  const sanitized = props.sanitizeHTML(editingContent.value)
+  props.updatePost(postId, sanitized) // Don't await, exit edit mode immediately
   editingPostId.value = null
   editingContent.value = ''
 }
@@ -413,7 +406,7 @@ async function saveEdit(postId) {
 const getInitials = (name) => name?.charAt(0)?.toUpperCase() || '?'
 
 const adminDisplayName = computed(() => {
-  const author = decryptUser(props.post.author)
+  const author = props.post.author
   const admin = props.store?.config?.admin
   if (admin && author.email === admin.email) {
     return `${admin.name} (${admin.title})`

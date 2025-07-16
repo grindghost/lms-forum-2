@@ -1,0 +1,20 @@
+{
+  "name": "forum-api",
+  "type": "module",
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "firebase-admin": "^11.10.1"
+  },
+  "version": "1.0.0",
+  "main": "_firebase.js",
+  "devDependencies": {
+    "firebase-admin": "^11.10.1"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

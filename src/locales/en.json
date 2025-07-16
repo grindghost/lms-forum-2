@@ -23,7 +23,9 @@
       "group": "Group",
       "subscribe": "Subscribe",
       "unsubscribe": "Unsubscribe",
-      "lastPostBy": "Last post by"
+      "lastPostBy": "Last post by",
+      "createThreadError": "Failed to create thread. Please try again.",
+      "subscribeError": "Failed to update subscription. Please try again."
     },
     "thread": {
       "reply": "Reply",
@@ -50,7 +52,8 @@
       "confirmDeletePostMessage": "Are you sure you want to permanently delete this post?",
       "confirmDeletePostWarning": "This action will permanently remove the post and all its replies from the database. This action cannot be undone.",
       "postDeleted": "This post has been deleted and is no longer available.",
-      "deletePermanently": "Delete permanently"
+      "deletePermanently": "Delete permanently",
+      "deletePostError": "Failed to delete post. Please try again."
     },
     "common": {
       "by": "by",
