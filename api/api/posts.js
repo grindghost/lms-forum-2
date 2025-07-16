@@ -38,21 +38,43 @@ export default async function handler(req, res) {
         case 'get-posts': {
           const threadId = req.query.threadId
           if (!threadId) return res.status(400).json({ error: 'Missing threadId' })
-          const postsRef = db.ref('posts')
-          const usersRef = db.ref('users')
-          const snapshot = await postsRef.get()
-          const allPosts = snapshot.val() || {}
-          // Fetch all users for mapping user_id to decrypted user
-          const usersSnap = await usersRef.get()
-          const allUsers = usersSnap.val() || {}
+          // Fetch post IDs for this thread
+          const threadPostsSnap = await db.ref(`threads/${threadId}/postIds`).get();
+          const postIdsObj = threadPostsSnap.val() || {};
+          const postIds = Object.keys(postIdsObj);
+          // Batch fetch posts
+          const postsSnapArr = await Promise.all(postIds.map(id => db.ref(`posts/${id}`).get()));
+          const allPosts = {};
+          postsSnapArr.forEach((snap, i) => {
+            if (snap.exists()) allPosts[postIds[i]] = snap.val();
+          });
+          // Collect all unique user IDs (authors + likedBy)
+          const userIdsSet = new Set();
+          Object.values(allPosts).forEach(post => {
+            if (post.author) userIdsSet.add(post.author);
+            if (post.likedBy) {
+              Object.keys(post.likedBy).forEach(uid => userIdsSet.add(uid));
+            }
+          });
+          const userIds = Array.from(userIdsSet);
+          // Batch fetch only those user records
+          const userSnaps = await Promise.all(userIds.map(uid => db.ref(`users/${uid}`).get()));
+          const userMap = {};
+          userSnaps.forEach((snap, i) => {
+            if (snap.exists()) userMap[userIds[i]] = snap.val();
+          });
+          // Map authors and likedBy using the fetched user records
           const posts = Object.entries(allPosts)
-            .map(([id, post]) => ({ id, ...post }))
-            .filter(post => post.threadId === threadId)
-            .map(post => ({
+            .map(([id, post]) => ({
+              id,
               ...post,
               content: post.content ? decryptText(post.content) : post.content,
-              author: post.author && allUsers[post.author] ? JSON.parse(decryptText(allUsers[post.author])) : null,
-              likedBy: post.likedBy ? Object.keys(post.likedBy).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
+              author: post.author && userMap[post.author] ? JSON.parse(decryptText(userMap[post.author])) : null,
+              likedBy: post.likedBy
+                ? Object.keys(post.likedBy)
+                    .map(uid => userMap[uid] ? JSON.parse(decryptText(userMap[uid])) : null)
+                    .filter(Boolean)
+                : [],
             }));
           return res.status(200).json(posts)
         }
@@ -102,8 +124,8 @@ export default async function handler(req, res) {
             deleted: false
           })
           const postId = newPostRef.key
-          // Add postId to threads/{threadId}/postIds/{postId} = true
-          await db.ref(`threads/${threadId}/postIds/${postId}`).set(true)
+          // Atomic update: add postId to threads/{threadId}/postIds/{postId} = true
+          await db.ref().update({ [`threads/${threadId}/postIds/${postId}`]: true })
           return res.status(200).json({ id: postId })
         }
         case 'like-post': {
@@ -171,7 +193,16 @@ export default async function handler(req, res) {
           }
           postsToDelete.add(postId)
           findReplies(postId)
-          await Promise.all(Array.from(postsToDelete).map(id => db.ref(`posts/${id}`).remove()))
+          // Remove posts and their references from threads/{threadId}/postIds
+          const updates = {}
+          for (const id of postsToDelete) {
+            const post = allPosts[id]
+            updates[`posts/${id}`] = null
+            if (post && post.threadId) {
+              updates[`threads/${post.threadId}/postIds/${id}`] = null
+            }
+          }
+          await db.ref().update(updates)
           return res.status(200).json({ success: true, deleted: Array.from(postsToDelete) })
         }
         default:

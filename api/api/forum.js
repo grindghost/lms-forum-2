@@ -46,20 +46,42 @@ export default async function handler(req, res) {
           if (currentUser && currentUser.email) {
             currentUserId = toFirebaseKey(deterministicEncryptText(currentUser.email));
           }
-          const threadsRef = db.ref('threads')
-          const usersRef = db.ref('users')
-          const snapshot = await threadsRef.get()
-          const allThreads = snapshot.val() || {}
-          // Fetch all users for mapping user_id to decrypted user
-          const usersSnap = await usersRef.get()
-          const allUsers = usersSnap.val() || {}
+          // Fetch thread IDs for this forum
+          const forumThreadsSnap = await db.ref(`forums/${groupId}/threadIds`).get();
+          const threadIdsObj = forumThreadsSnap.val() || {};
+          const threadIds = Object.keys(threadIdsObj);
+          // Batch fetch threads
+          const threadsSnapArr = await Promise.all(threadIds.map(id => db.ref(`threads/${id}`).get()));
+          const allThreads = {};
+          threadsSnapArr.forEach((snap, i) => {
+            if (snap.exists()) allThreads[threadIds[i]] = snap.val();
+          });
+          // Collect all unique user IDs (authors + subscribers)
+          const userIdsSet = new Set();
+          Object.values(allThreads).forEach(thread => {
+            if (thread.author) userIdsSet.add(thread.author);
+            if (thread.subscribers) {
+              Object.keys(thread.subscribers).forEach(uid => userIdsSet.add(uid));
+            }
+          });
+          const userIds = Array.from(userIdsSet);
+          // Batch fetch only those user records
+          const userSnaps = await Promise.all(userIds.map(uid => db.ref(`users/${uid}`).get()));
+          const userMap = {};
+          userSnaps.forEach((snap, i) => {
+            if (snap.exists()) userMap[userIds[i]] = snap.val();
+          });
+          // Map authors and subscribers using the fetched user records
           const threads = Object.entries(allThreads)
-            .map(([id, thread]) => ({ id, ...thread }))
-            .filter(thread => thread.forumId === groupId)
-            .map(thread => ({
+            .map(([id, thread]) => ({
+              id,
               ...thread,
-              author: thread.author && allUsers[thread.author] ? JSON.parse(decryptText(allUsers[thread.author])) : null,
-              subscribers: thread.subscribers ? Object.keys(thread.subscribers).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
+              author: thread.author && userMap[thread.author] ? JSON.parse(decryptText(userMap[thread.author])) : null,
+              subscribers: thread.subscribers
+                ? Object.keys(thread.subscribers)
+                    .map(uid => userMap[uid] ? JSON.parse(decryptText(userMap[uid])) : null)
+                    .filter(Boolean)
+                : [],
               isSubscribed: currentUserId ? !!(thread.subscribers && thread.subscribers[currentUserId]) : false
             }));
           return res.status(200).json(threads)
@@ -116,31 +138,57 @@ export default async function handler(req, res) {
             forumId,
             group: forumId, // for backward compatibility
             sortOrder: Date.now(),
-            subscribers: { [user_id]: true },
+            subscribers: {},
             postIds: {}
           })
           const threadId = newThreadRef.key
-          // Add threadId to forums/{forumId}/threadIds/{threadId} = true
-          await db.ref(`forums/${forumId}/threadIds/${threadId}`).set(true)
-          // Add user_id to threads/{threadId}/subscribers/{user_id} = true (already set above)
+          // Atomic update: add threadId to forums/{forumId}/threadIds/{threadId} = true
+          await db.ref().update({ [`forums/${forumId}/threadIds/${threadId}`]: true })
           return res.status(200).json({ id: threadId })
         }
         case 'update-thread': {
-          const { id, title, readOnly } = req.body
+          const { id, title, readOnly, forumId: newForumId } = req.body
           if (!id) return res.status(400).json({ error: 'Missing thread id' })
+          // Fetch current thread to check for forumId change
+          const threadSnap = await db.ref(`threads/${id}`).get()
+          const thread = threadSnap.val()
+          if (!thread) return res.status(404).json({ error: 'Thread not found' })
+          const oldForumId = thread.forumId
           const updateData = {}
           if (title !== undefined) updateData.title = title
           if (readOnly !== undefined) updateData.readOnly = readOnly
-          if (Object.keys(updateData).length === 0) {
+          if (newForumId && newForumId !== oldForumId) {
+            updateData.forumId = newForumId
+            updateData.group = newForumId
+          }
+          if (Object.keys(updateData).length === 0 && (!newForumId || newForumId === oldForumId)) {
             return res.status(400).json({ error: 'No fields to update' })
           }
-          await db.ref(`threads/${id}`).update(updateData)
+          // Atomic update for forum move
+          const updates = {}
+          if (newForumId && newForumId !== oldForumId) {
+            updates[`forums/${oldForumId}/threadIds/${id}`] = null
+            updates[`forums/${newForumId}/threadIds/${id}`] = true
+          }
+          await Promise.all([
+            db.ref(`threads/${id}`).update(updateData),
+            Object.keys(updates).length ? db.ref().update(updates) : Promise.resolve()
+          ])
           return res.status(200).json({ success: true })
         }
         case 'delete-thread': {
           const { id } = req.body
           if (!id) return res.status(400).json({ error: 'Missing thread id' })
-          await db.ref(`threads/${id}`).remove()
+          // Fetch thread to get forumId
+          const threadSnap = await db.ref(`threads/${id}`).get()
+          const thread = threadSnap.val()
+          if (!thread) return res.status(404).json({ error: 'Thread not found' })
+          const forumId = thread.forumId
+          // Atomic update: remove thread and reference
+          const updates = {}
+          updates[`threads/${id}`] = null
+          updates[`forums/${forumId}/threadIds/${id}`] = null
+          await db.ref().update(updates)
           return res.status(200).json({ success: true })
         }
         case 'update-sort-order': {
