@@ -127,8 +127,12 @@ export default async function handler(req, res) {
           // Compute user_id and encrypted user
           const user_id = toFirebaseKey(deterministicEncryptText(author.email))
           const encryptedUser = encryptText(JSON.stringify(author))
-          // Store user in users/{user_id}
-          await db.ref(`users/${user_id}`).set(encryptedUser)
+          // Store user in users/{user_id} only if not already present
+          const userRef = db.ref(`users/${user_id}`)
+          const userSnap = await userRef.get()
+          if (!userSnap.exists()) {
+            await userRef.set(encryptedUser)
+          }
           // Create thread
           const threadsRef = db.ref('threads')
           const newThreadRef = await threadsRef.push({
