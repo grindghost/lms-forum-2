@@ -324,7 +324,9 @@ watch(
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
     <ErrorToast :show="showErrorToast" :message="errorMessage" />
-    <YellowSpinner v-if="isLoading" />
+    <div v-if="isLoading" class="flex items-center justify-center min-h-[40vh]">
+      <YellowSpinner />
+    </div>
     <main v-else class="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <!-- Create Thread Section -->
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">

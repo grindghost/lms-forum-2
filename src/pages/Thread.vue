@@ -412,7 +412,9 @@ function stopEditing() {
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16">
     <ErrorToast :show="showErrorToast" :message="errorMessage" />
-    <YellowSpinner v-if="isLoading" />
+    <div v-if="isLoading" class="flex items-center justify-center min-h-[40vh]">
+      <YellowSpinner />
+    </div>
     <div v-else class="max-w-5xl mx-auto px-4">
       <!-- Thread Header -->
       <div class="mb-6 border-b pb-4">
