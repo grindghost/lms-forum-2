@@ -1,7 +1,7 @@
 import { getFirebaseDB } from '../_firebase.js'
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { encryptText, decryptText } = require('../utils/encryption.cjs');
+const { encryptText, decryptText, deterministicEncryptText, toFirebaseKey } = require('../utils/encryption.cjs');
 
 function safeParse(str) {
   try { return JSON.parse(str); } catch { return { name: '', email: '' }; }
@@ -39,29 +39,37 @@ export default async function handler(req, res) {
           const threadId = req.query.threadId
           if (!threadId) return res.status(400).json({ error: 'Missing threadId' })
           const postsRef = db.ref('posts')
+          const usersRef = db.ref('users')
           const snapshot = await postsRef.get()
           const allPosts = snapshot.val() || {}
+          // Fetch all users for mapping user_id to decrypted user
+          const usersSnap = await usersRef.get()
+          const allUsers = usersSnap.val() || {}
           const posts = Object.entries(allPosts)
             .map(([id, post]) => ({ id, ...post }))
             .filter(post => post.threadId === threadId)
             .map(post => ({
               ...post,
               content: post.content ? decryptText(post.content) : post.content,
-              author: post.author ? safeParse(decryptText(post.author)) : post.author,
-              likedBy: Array.isArray(post.likedBy) ? post.likedBy : []
+              author: post.author && allUsers[post.author] ? JSON.parse(decryptText(allUsers[post.author])) : null,
+              likedBy: post.likedBy ? Object.keys(post.likedBy).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
             }));
           return res.status(200).json(posts)
         }
         case 'get-all-posts': {
           const postsRef = db.ref('posts')
+          const usersRef = db.ref('users')
           const snapshot = await postsRef.get()
           const allPosts = snapshot.val() || {}
+          // Fetch all users for mapping user_id to decrypted user
+          const usersSnap = await usersRef.get()
+          const allUsers = usersSnap.val() || {}
           const posts = Object.entries(allPosts).map(([id, post]) => ({ id, ...post }))
             .map(post => ({
               ...post,
               content: post.content ? decryptText(post.content) : post.content,
-              author: post.author ? safeParse(decryptText(post.author)) : post.author,
-              likedBy: Array.isArray(post.likedBy) ? post.likedBy : []
+              author: post.author && allUsers[post.author] ? JSON.parse(decryptText(allUsers[post.author])) : null,
+              likedBy: post.likedBy ? Object.keys(post.likedBy).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
             }));
           return res.status(200).json(posts)
         }
@@ -73,35 +81,50 @@ export default async function handler(req, res) {
         case 'create-post': {
           const { threadId, parentId, content, author } = req.body
           if (!threadId || !content || !author) return res.status(400).json({ error: 'Missing data' })
+          if (typeof author !== 'object' || !author.name || !author.email) {
+            return res.status(400).json({ error: 'Invalid author object' })
+          }
+          // Compute user_id and encrypted user
+          const user_id = toFirebaseKey(deterministicEncryptText(author.email))
+          const encryptedUser = encryptText(JSON.stringify(author))
+          // Store user in users/{user_id}
+          await db.ref(`users/${user_id}`).set(encryptedUser)
+          // Create post
           const postsRef = db.ref('posts')
-          const newPost = await postsRef.push({
+          const newPostRef = await postsRef.push({
             threadId,
             parentId: parentId ?? null,
             content: encryptText(content),
-            author: encryptText(typeof author === 'string' ? author : JSON.stringify(author)),
+            author: user_id,
             createdAt: Date.now(),
             likes: 0,
-            likedBy: [],
+            likedBy: {},
             deleted: false
           })
-          return res.status(200).json({ id: newPost.key })
+          const postId = newPostRef.key
+          // Add postId to threads/{threadId}/postIds/{postId} = true
+          await db.ref(`threads/${threadId}/postIds/${postId}`).set(true)
+          return res.status(200).json({ id: postId })
         }
         case 'like-post': {
           const { postId, userEmail } = req.body;
           if (!postId || !userEmail) return res.status(400).json({ error: 'Missing data' });
+          // Compute user_id and encrypted user
+          const user_id = toFirebaseKey(deterministicEncryptText(userEmail))
+          // Optionally, you could require user data to update users/{user_id} here if available
           const postRef = db.ref(`posts/${postId}`);
           const postSnap = await postRef.get();
           const post = postSnap.val();
-          let likedBy = Array.isArray(post?.likedBy) ? post.likedBy : [];
+          let likedBy = post?.likedBy || {};
           let likes = typeof post?.likes === 'number' ? post.likes : 0;
-          const hasLiked = likedBy.includes(userEmail);
+          const hasLiked = !!likedBy[user_id];
 
           if (hasLiked) {
-            likedBy = likedBy.filter(email => email !== userEmail);
+            delete likedBy[user_id];
             likes = Math.max(0, likes - 1);
           } else {
-            likedBy = [...likedBy, userEmail];
-            likes = likes + 1;
+            likedBy[user_id] = true;
+            likes = Object.keys(likedBy).length;
           }
 
           await postRef.update({ likes, likedBy });
