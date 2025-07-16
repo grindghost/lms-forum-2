@@ -12,7 +12,7 @@ import { createThread } from '@/services/createThread'
 import { updateThread } from '@/services/updateThread'
 import { deleteThread } from '@/services/deleteThread'
 import { updateSortOrder } from '@/services/updateSortOrder'
-import { getAllPosts } from '@/services/getPosts'
+import { getPosts } from '@/services/getPosts'
 import YellowSpinner from '@/components/YellowSpinner.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
 import { toggleThreadSubscription } from '@/services/toggleThreadSubscription'
@@ -299,7 +299,7 @@ const fetchThreadsAndPosts = async () => {
     return b.createdAt - a.createdAt
   })
   // Fetch all posts for last post info
-  const postsData = await getAllPosts()
+  const postsData = await getPosts()
   posts.value = postsData.reduce((acc, post) => {
     acc[post.id] = post
     return acc
