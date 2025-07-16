@@ -15,7 +15,7 @@ import { updateSortOrder } from '@/services/updateSortOrder'
 import { getAllPosts } from '@/services/getPosts'
 import YellowSpinner from '@/components/YellowSpinner.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
-import { updateThreadSubscribers } from '@/services/toggleThreadSubscription'
+import { toggleThreadSubscription } from '@/services/toggleThreadSubscription'
 
 const { t: $t, locale } = useI18n()
 
@@ -63,35 +63,18 @@ function getLastPostInfo(threadId) {
   }
 }
 
-// Subscribe logic
-function isSubscribed(thread) {
-  if (!thread.subscribers) return false
-  return thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
-}
+// Subscribe logic (isSubscribed now handled by backend)
 async function toggleSubscribe(thread) {
-  if (!thread.subscribers) thread.subscribers = []
-  // Check if already subscribed (by email)
-  const isSubscribedNow = thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
-  // Optimistically update
-  const oldSubscribers = [...thread.subscribers]
-  if (isSubscribedNow) {
-    thread.subscribers = thread.subscribers.filter(sub => (typeof sub === 'string' ? sub : sub.email) !== store.currentUser.email)
-  } else {
-    thread.subscribers = [...thread.subscribers, store.currentUser.email]
-  }
-  // Remove empty strings before sending to backend
-  thread.subscribers = thread.subscribers.filter(email => !!email)
   try {
-    const res = await updateThreadSubscribers({
+    const res = await toggleThreadSubscription({
       threadId: thread.id,
-      subscribers: thread.subscribers
-    })
-    thread.subscribers = res.subscribers
+      userEmail: store.currentUser.email
+    });
+    thread.isSubscribed = res.isSubscribed;
   } catch (e) {
-    thread.subscribers = oldSubscribers
-    errorMessage.value = $t('home.subscribeError') || 'Failed to update subscription'
-    showErrorToast.value = true
-    setTimeout(() => (showErrorToast.value = false), 3000)
+    errorMessage.value = $t('home.subscribeError') || 'Failed to update subscription';
+    showErrorToast.value = true;
+    setTimeout(() => (showErrorToast.value = false), 3000);
   }
 }
 
@@ -310,7 +293,7 @@ const handleDeleteThread = async () => {
 const fetchThreadsAndPosts = async () => {
   if (!store.groupId) return
   isLoading.value = true
-  const threadsData = await getThreads(store.groupId)
+  const threadsData = await getThreads(store.groupId, store.currentUser)
   threads.value = threadsData.sort((a, b) => {
     if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
     return b.createdAt - a.createdAt
@@ -394,7 +377,7 @@ watch(
           @click="goToThread(thread.id)"
         >
           <!-- Subscribe Star -->
-          <div v-if="isSubscribed(thread)" class="absolute top-2 right-2 z-10">
+          <div v-if="thread.isSubscribed" class="absolute top-2 right-2 z-10">
             <div class="w-5 h-5 sm:w-6 sm:h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
               <span class="text-yellow-600 text-xs sm:text-sm">⭐</span>
             </div>
@@ -473,13 +456,13 @@ watch(
               <div class="flex items-center gap-2" @click.stop>
                 <input
                   type="checkbox"
-                  :checked="isSubscribed(thread)"
+                  :checked="thread.isSubscribed"
                   @change="toggleSubscribe(thread)"
                   class="checkbox checkbox-xs"
                   :id="'subscribe-' + thread.id"
                 />
                 <label :for="'subscribe-' + thread.id" class="text-xs cursor-pointer">
-                  {{ isSubscribed(thread) ? $t('home.unsubscribe') : $t('home.subscribe') }}
+                  {{ thread.isSubscribed ? $t('home.unsubscribe') : $t('home.subscribe') }}
                 </label>
               </div>
 

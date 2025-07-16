@@ -37,6 +37,15 @@ export default async function handler(req, res) {
         case 'get-threads': {
           const groupId = req.query.groupId
           if (!groupId) return res.status(400).json({ error: 'Missing groupId' })
+          // Accept currentUser as JSON string in query param (for GET)
+          let currentUser = null;
+          try {
+            currentUser = req.query.currentUser ? JSON.parse(req.query.currentUser) : null;
+          } catch { currentUser = null; }
+          let currentUserId = null;
+          if (currentUser && currentUser.email) {
+            currentUserId = toFirebaseKey(deterministicEncryptText(currentUser.email));
+          }
           const threadsRef = db.ref('threads')
           const usersRef = db.ref('users')
           const snapshot = await threadsRef.get()
@@ -50,7 +59,8 @@ export default async function handler(req, res) {
             .map(thread => ({
               ...thread,
               author: thread.author && allUsers[thread.author] ? JSON.parse(decryptText(allUsers[thread.author])) : null,
-              subscribers: thread.subscribers ? Object.keys(thread.subscribers).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : []
+              subscribers: thread.subscribers ? Object.keys(thread.subscribers).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
+              isSubscribed: currentUserId ? !!(thread.subscribers && thread.subscribers[currentUserId]) : false
             }));
           return res.status(200).json(threads)
         }
@@ -63,11 +73,21 @@ export default async function handler(req, res) {
           // Fetch users for author and subscribers
           const usersSnap = await db.ref('users').get()
           const allUsers = usersSnap.val() || {}
+          // Accept currentUser as JSON string in query param (for GET)
+          let currentUser = null;
+          try {
+            currentUser = req.query.currentUser ? JSON.parse(req.query.currentUser) : null;
+          } catch { currentUser = null; }
+          let currentUserId = null;
+          if (currentUser && currentUser.email) {
+            currentUserId = toFirebaseKey(deterministicEncryptText(currentUser.email));
+          }
           return res.status(200).json({
             id: threadId,
             ...thread,
             author: thread.author && allUsers[thread.author] ? JSON.parse(decryptText(allUsers[thread.author])) : null,
-            subscribers: thread.subscribers ? Object.keys(thread.subscribers).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : []
+            subscribers: thread.subscribers ? Object.keys(thread.subscribers).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
+            isSubscribed: currentUserId ? !!(thread.subscribers && thread.subscribers[currentUserId]) : false
           })
         }
         default:
@@ -130,32 +150,25 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true })
         }
         case 'toggle-subscription': {
-          console.log('TOGGLE SUBSCRIPTION HIT', req.body);
           const { threadId, userEmail } = req.body
           if (!threadId || !userEmail) return res.status(400).json({ error: 'Missing threadId or userEmail' })
+          const user_id = toFirebaseKey(deterministicEncryptText(userEmail))
           const threadRef = db.ref(`threads/${threadId}/subscribers`)
           const snap = await threadRef.get()
-          let subscribers = snap.val() || []
-          if (!Array.isArray(subscribers)) subscribers = []
-          if (subscribers.includes(userEmail)) {
+          let subscribers = snap.val() || {}
+          if (typeof subscribers !== 'object' || Array.isArray(subscribers)) subscribers = {}
+          let isSubscribed = false;
+          if (subscribers[user_id]) {
             // Unsubscribe
-            subscribers = subscribers.filter(e => e !== userEmail)
+            delete subscribers[user_id]
+            isSubscribed = false;
           } else {
             // Subscribe
-            subscribers.push(userEmail)
+            subscribers[user_id] = true
+            isSubscribed = true;
           }
           await threadRef.set(subscribers)
-          return res.status(200).json({ subscribers })
-        }
-        case 'update-subscribers': {
-          console.log('UPDATE SUBSCRIPTION HIT', req.body);
-          
-          const { threadId, subscribers } = req.body
-          if (!threadId || !Array.isArray(subscribers)) return res.status(400).json({ error: 'Missing threadId or subscribers' })
-
-          // Store all subscribers as plain emails for easier inspection
-          await db.ref(`threads/${threadId}/subscribers`).set(subscribers)
-          return res.status(200).json({ subscribers })
+          return res.status(200).json({ isSubscribed })
         }
         // Add more thread actions here (subscribe, reorder, etc.)
         default:
