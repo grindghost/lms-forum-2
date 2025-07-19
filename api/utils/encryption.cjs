@@ -55,10 +55,15 @@ function decryptUser(encryptedUser) {
   }
 }
 
+function toFirebaseKey(str) {
+  return str.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 module.exports = {
   encryptText,
   decryptText,
   deterministicEncryptText,
   encryptUser,
-  decryptUser
+  decryptUser,
+  toFirebaseKey
 }; 

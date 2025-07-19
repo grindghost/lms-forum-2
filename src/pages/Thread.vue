@@ -21,6 +21,8 @@ import { restorePost } from '@/services/restorePost'
 import { adminDeletePost } from '@/services/adminDeletePost'
 import { updatePost } from '@/services/updatePost'
 import YellowSpinner from '@/components/YellowSpinner.vue'
+import { getThreads } from '@/services/getThreads'
+import NotFound from '@/components/NotFound.vue'
 
 const { t: $t, locale } = useI18n()
 
@@ -28,9 +30,9 @@ const route = useRoute()
 const store = useForumStore()
 const threadId = route.params.id
 
-const threadTitle = ref('Loading…')
-const threadData = ref(null)
-const posts = ref([])
+const thread = computed(() => store.threads[threadId])
+const threadTitle = computed(() => thread.value?.title || $t('thread.untitled'))
+const posts = computed(() => Object.values(store.posts).filter(p => p.threadId === threadId).sort((a, b) => a.createdAt - b.createdAt))
 const newReply = ref('')
 const replyingTo = ref(null)
 
@@ -66,17 +68,47 @@ const checkPostExists = (postId) => {
 }
 
 const isLoading = ref(true)
+const postsLoaded = ref(false)
+const notFound = ref(false)
 
 const fetchThread = async () => {
-  isLoading.value = true
-  const data = await getThread(threadId)
-  threadData.value = data
-  threadTitle.value = data?.title || $t('thread.untitled')
+  // If threads are not loaded, fetch all threads
+  if (Object.keys(store.threads).length === 0) {
+    const threadsData = await getThreads(store.groupId, store.currentUser)
+    store.replaceThreads(threadsData)
+  }
+  // If the specific thread is still not found, fetch it directly as a fallback
+  if (!store.threads[threadId]) {
+    try {
+      const data = await getThread(threadId)
+      if (data && data.id) {
+        store.addThread(data)
+      } else {
+        notFound.value = true
+        return
+      }
+    } catch (e) {
+      notFound.value = true
+      return
+    }
+  }
+  // If still not found after all attempts
+  if (!store.threads[threadId]) {
+    notFound.value = true
+  }
 }
 
-const fetchPosts = async () => {
+const fetchPosts = async (force = false) => {
+  postsLoaded.value = false
+  isLoading.value = true
+  if (!force && posts.value.length > 0) {
+    postsLoaded.value = true
+    isLoading.value = false
+    return
+  }
   const all = await getPosts(threadId)
-  posts.value = all.sort((a, b) => a.createdAt - b.createdAt)
+  store.setPosts(all)
+  postsLoaded.value = true
   isLoading.value = false
 }
 
@@ -106,7 +138,7 @@ const reply = async (parentId = null) => {
     likedBy: [],
     updatedAt: Date.now()
   }
-  posts.value.push(optimisticPost)
+  store.addPost(optimisticPost)
   lastCreatedPostId.value = tempId
   const oldReply = newReply.value
   newReply.value = ''
@@ -118,14 +150,12 @@ const reply = async (parentId = null) => {
       content: optimisticPost.content,
       author: store.currentUser
     })
-    // Merge real post data with optimistic one
-    const idx = posts.value.findIndex(p => p.id === tempId)
-    if (idx !== -1) {
-      posts.value[idx] = { ...posts.value[idx], ...created }
-      lastCreatedPostId.value = posts.value[idx].id
-    }
+    // Remove the temp post and add the real one
+    store.removePost(tempId)
+    store.addPost({ ...optimisticPost, ...created, id: created.id })
+    lastCreatedPostId.value = created.id
   } catch (e) {
-    posts.value = posts.value.filter(p => p.id !== tempId)
+    store.removePost(tempId)
     errorMessage.value = $t('thread.createPostError') || 'Failed to create post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -133,30 +163,27 @@ const reply = async (parentId = null) => {
 }
 
 const likePostHandler = async (postId, currentLikes, likedBy = []) => {
-  const idx = posts.value.findIndex(p => p.id === postId)
-  if (idx === -1) return
+  const post = store.posts[postId]
+  if (!post) return
   const userEmail = store.currentUser.email
-  const hasLiked = likedBy.includes(userEmail)
+  const hasLiked = post.likedBy.some(u => u.email === userEmail)
   // Optimistically update
-  const oldLikes = posts.value[idx].likes
-  const oldLikedBy = [...posts.value[idx].likedBy]
+  const oldLikes = post.likes
+  const oldLikedBy = [...post.likedBy]
   if (hasLiked) {
-    posts.value[idx].likes = oldLikes - 1
-    posts.value[idx].likedBy = oldLikedBy.filter(e => e !== userEmail)
+    store.updatePost({ id: postId, likes: oldLikes - 1, likedBy: oldLikedBy.filter(e => e.email !== userEmail) })
   } else {
-    posts.value[idx].likes = oldLikes + 1
-    posts.value[idx].likedBy = [...oldLikedBy, userEmail]
+    store.updatePost({ id: postId, likes: oldLikes + 1, likedBy: [...oldLikedBy, { email: userEmail, name: store.currentUser.name }] })
   }
   try {
     await likePost({
       postId,
       userEmail,
-      likedBy: posts.value[idx].likedBy,
-      currentLikes: posts.value[idx].likes
+      likedBy: store.posts[postId].likedBy,
+      currentLikes: store.posts[postId].likes
     })
   } catch (e) {
-    posts.value[idx].likes = oldLikes
-    posts.value[idx].likedBy = oldLikedBy
+    store.updatePost({ id: postId, likes: oldLikes, likedBy: oldLikedBy })
     errorMessage.value = $t('thread.likePostError') || 'Failed to like post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -164,15 +191,15 @@ const likePostHandler = async (postId, currentLikes, likedBy = []) => {
 }
 
 const deletePost = async (postId, content) => {
-  const idx = posts.value.findIndex(p => p.id === postId)
-  if (idx === -1) return
-  const oldDeleted = posts.value[idx].deleted
+  const post = store.posts[postId]
+  if (!post) return
+  const oldDeleted = post.deleted
   // Optimistically mark as deleted
-  posts.value[idx].deleted = true
+  store.updatePost({ id: postId, deleted: true })
   try {
     await softDeletePost({ postId, content })
   } catch (e) {
-    posts.value[idx].deleted = oldDeleted
+    store.updatePost({ id: postId, deleted: oldDeleted })
     errorMessage.value = $t('thread.deletePostError') || 'Failed to delete post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -185,20 +212,51 @@ const restorePostHandler = async (postId, originalContent) => {
 }
 
 const adminDeletePostHandler = async (postId) => {
-  await adminDeletePost({ postId })
-  await fetchPosts()
+  // 1. Find all descendant post IDs (including the post itself)
+  const findDescendants = (id, allPosts) => {
+    let ids = [id]
+    Object.values(allPosts).forEach(post => {
+      if (post.parentId === id) {
+        ids = ids.concat(findDescendants(post.id, allPosts))
+      }
+    })
+    return ids
+  }
+  const allPosts = store.posts
+  const idsToDelete = findDescendants(postId, allPosts)
+  // 2. Backup the posts to be deleted
+  const backup = {}
+  idsToDelete.forEach(id => {
+    backup[id] = allPosts[id]
+  })
+  // 3. Optimistically remove from store
+  idsToDelete.forEach(id => {
+    store.removePost(id)
+  })
+  try {
+    await adminDeletePost({ postId })
+    // Success: do nothing, UI is already correct
+  } catch (e) {
+    // Failure: restore posts
+    Object.values(backup).forEach(post => {
+      store.addPost(post)
+    })
+    errorMessage.value = $t('thread.deletePostError') || 'Failed to delete post'
+    showErrorToast.value = true
+    setTimeout(() => (showErrorToast.value = false), 3000)
+  }
 }
 
 const updatePostHandler = async (postId, content) => {
-  const idx = posts.value.findIndex(p => p.id === postId)
-  if (idx === -1) return
-  const oldContent = posts.value[idx].content
+  const post = store.posts[postId]
+  if (!post) return
+  const oldContent = post.content
   // Optimistically update
-  posts.value[idx].content = content
+  store.updatePost({ id: postId, content })
   try {
     await updatePost({ postId, content })
   } catch (e) {
-    posts.value[idx].content = oldContent
+    store.updatePost({ id: postId, content: oldContent })
     errorMessage.value = $t('thread.editPostError') || 'Failed to edit post'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -223,8 +281,8 @@ const threadAuthor = computed(() => {
     return posts.value[0].author.name
   }
   // Otherwise, use the thread's author
-  if (threadData.value?.author) {
-    return threadData.value.author.name
+  if (thread.value?.author) {
+    return thread.value.author.name
   }
   return null
 })
@@ -240,8 +298,8 @@ const threadDate = computed(() => {
     return formatDate(posts.value[0].createdAt, locale.value)
   }
   // Otherwise, use the thread's date
-  if (threadData.value?.createdAt) {
-    return formatDate(threadData.value.createdAt, locale.value)
+  if (thread.value?.createdAt) {
+    return formatDate(thread.value.createdAt, locale.value)
   }
   return ''
 })
@@ -251,7 +309,7 @@ const canPost = computed(() => {
   // Admin can always post
   if (store.isAdmin()) return true
   // If thread is read-only, only admin can post
-  if (threadData.value?.readOnly) return false
+  if (thread.value?.readOnly) return false
   // Otherwise, anyone can post
   return true
 })
@@ -263,7 +321,7 @@ const renderPosts = (parentId = null, depth = 0) => {
     : list
   
   // If thread is read-only, only show original posts (depth 0) and hide all replies
-  if (threadData.value?.readOnly && depth > 0) {
+  if (thread.value?.readOnly && depth > 0) {
     return []
   }
   
@@ -274,9 +332,33 @@ const renderPosts = (parentId = null, depth = 0) => {
   }))
 }
 
-onMounted(async () => {
-  await fetchThread()
-  await fetchPosts()
+onMounted(() => {
+  let loaded = false
+  watch(
+    () => [store.config, store.groupId, store.currentUser],
+    async ([config, groupId, currentUser]) => {
+      if (loaded) return
+      if (!config || !groupId || !currentUser || !currentUser.email) return
+      // Fetch all threads for the group
+      if (!store.threadsLoaded) {
+        const threadsData = await getThreads(groupId, currentUser)
+        store.replaceThreads(threadsData)
+      }
+      // Only fetch posts if not already loaded for this thread
+      if (!Object.values(store.posts).some(p => p.threadId === threadId)) {
+        const all = await getPosts(threadId)
+        store.setPosts(all)
+      }
+      // Check if thread exists after all fetches
+      if (!store.threads[threadId]) {
+        notFound.value = true
+      }
+      postsLoaded.value = true
+      isLoading.value = false
+      loaded = true
+    },
+    { immediate: true }
+  )
 })
 
 // Watch for route changes and re-fetch data
@@ -292,9 +374,9 @@ watch(
 
 // Watch for hash changes to detect deleted posts
 watch(
-  () => [route.hash, isLoading.value],
-  ([newHash, loading]) => {
-    if (!loading && newHash) {
+  [() => route.hash, () => isLoading.value, () => posts.value.length],
+  ([newHash, loading, postCount]) => {
+    if (!loading && newHash && postCount > 0) {
       const postId = newHash.split('#').pop()
       checkPostExists(postId)
     }
@@ -328,127 +410,138 @@ const threadAuthorEmail = computed(() => {
   if (posts.value.length > 0 && posts.value[0]?.author) {
     return posts.value[0].author.email
   }
-  if (threadData.value?.author) {
-    return threadData.value.author.email
+  if (thread.value?.author) {
+    return thread.value.author.email
   }
   return ''
 })
 
-const editingPostId = ref(null) // Add this if not already present
+const editingPostId = ref(null)
 const isAnyEditorOpen = computed(() => replyingTo.value !== null || showNewPostModal.value || editingPostId.value !== null)
+
+function startEditing(postId) {
+  editingPostId.value = postId;
+}
+
+function stopEditing() {
+  editingPostId.value = null;
+}
 </script>
 
 <template>
-  <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16">
-    <ErrorToast :show="showErrorToast" :message="errorMessage" />
-    <YellowSpinner v-if="isLoading" />
-    <div v-else class="max-w-5xl mx-auto px-4">
-      <!-- Thread Header -->
-      <div class="mb-6 border-b pb-4">
-        <h1 class="text-[1.5rem] font-regular font-overpass text-base-content">
-          {{ threadTitle }}
-        </h1>
-        <div class="text-sm text-base-content/70 mt-1 flex gap-2 items-center">
-          <AvatarInitial :name="threadAuthor || '?'" />
-          <UserName :name="threadAuthor || '?'" :email="threadAuthorEmail || ''" />
-          <span v-if="threadDate">•</span>
-          <span v-if="threadDate"> {{ threadDate }}</span>
-        </div>
+  <div class="bg-[#f4f6f8] font-sans pt-32 flex-1 pb-16" :class="{ 'flex items-center justify-center min-h-[40vh] pt-24 pb-0': notFound }">
+    <template v-if="notFound">
+      <NotFound />
+    </template>
+    <template v-else>
+      <ErrorToast :show="showErrorToast" :message="errorMessage" />
+      <div v-if="isLoading" class="flex items-center justify-center min-h-[40vh]">
+        <YellowSpinner />
       </div>
-
-      <!-- Hide Deleted Posts Checkbox and Add Post Button Row -->
-      <div class="mb-4 flex items-center gap-2 justify-between">
-        <div class="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="hideDeletedPosts"
-            v-model="hideDeletedPosts"
-            class="checkbox checkbox-sm"
-          />
-          <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
-            {{ $t('thread.hideDeletedPosts') }}
-          </label>
-        </div>
-        <div v-if="canPost" class="flex items-center">
-          <button
-            class="bg-blue-600 text-white rounded-full shadow-lg w-10 h-10 flex items-center justify-center text-3xl hover:bg-blue-700 transition"
-            @click="openNewPostModal"
-            aria-label="Add new post"
-          >
-            +
-          </button>
-        </div>
-      </div>
-
-      <!-- Posts List -->
-      <div v-if="renderPosts().length > 0" class="space-y-4">
-        <PostItem
-          v-for="post in renderPosts()"
-          :key="post.id"
-          :post="post"
-          :threadData="threadData"
-          :replyingTo="replyingTo"
-          :editingPostId="editingPostId"
-          :isAnyEditorOpen="isAnyEditorOpen"
-          :newReply="newReply"
-          :depth="post.depth"
-          :renderPosts="renderPosts"
-          :showReplyEditor="showReplyEditor"
-          :likePost="likePostHandler"
-          :deletePost="deletePost"
-          :restorePost="restorePostHandler"
-          :reply="reply"
-          :cancelReply="cancelReply"
-          :store="store"
-          :RichEditor="RichEditor"
-          :sanitizeHTML="sanitizeHTML"
-          :adminDeletePost="adminDeletePostHandler"
-          :updatePost="updatePostHandler"
-          :charLimit="store.charLimit"
-          @update:newReply="val => newReply = val"
-        />
-      </div>
-
-      <!-- No Posts Message -->
-      <div v-else class="text-center py-12">
-        <div class="max-w-md mx-auto">
-          <div class="text-6xl mb-4">💬</div>
-          <h3 class="text-xl font-semibold text-base-content mb-2">
-            {{ $t('thread.noPostsYet') }}
-          </h3>
-          <p class="text-base-content/70 mb-6">
-            {{ $t('thread.beFirstToPost') }}
-          </p>
-          <button 
-            v-if="canPost"
-            class="btn btn-primary btn-lg"
-            @click="openNewPostModal"
-          >
-            {{ $t('thread.createFirstPost') }}
-          </button>
-          <div v-else class="text-base-content/60">
-            {{ $t('thread.readOnlyThread') }}
+      <div v-else class="max-w-5xl mx-auto px-4">
+        <!-- Thread Header -->
+        <div class="mb-6 border-b pb-4">
+          <h1 class="text-[1.5rem] font-regular font-overpass text-base-content">
+            {{ threadTitle }}
+          </h1>
+          <div class="text-sm text-base-content/70 mt-1 flex gap-2 items-center">
+            <AvatarInitial :name="threadAuthor || '?'" />
+            <UserName :name="threadAuthor || '?'" :email="threadAuthorEmail || ''" />
+            <span v-if="threadDate">•</span>
+            <span v-if="threadDate"> {{ threadDate }}</span>
           </div>
         </div>
+        <!-- Hide Deleted Posts Checkbox and Add Post Button Row -->
+        <div class="mb-4 flex items-center gap-2 justify-between">
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="hideDeletedPosts"
+              v-model="hideDeletedPosts"
+              class="checkbox checkbox-sm"
+            />
+            <label for="hideDeletedPosts" class="text-sm text-base-content/70 cursor-pointer">
+              {{ $t('thread.hideDeletedPosts') }}
+            </label>
+          </div>
+          <div v-if="canPost" class="flex items-center">
+            <button
+              class="bg-blue-600 text-white rounded-full shadow-lg w-10 h-10 flex items-center justify-center text-3xl hover:bg-blue-700 transition"
+              @click="openNewPostModal"
+              aria-label="Add new post"
+            >
+              +
+            </button>
+          </div>
+        </div>
+        <!-- Posts List -->
+        <div v-if="postsLoaded && renderPosts().length > 0" class="space-y-4">
+          <PostItem
+            v-for="post in renderPosts()"
+            :key="post.id"
+            :post="post"
+            :threadData="thread"
+            :replyingTo="replyingTo"
+            :editingPostId="editingPostId"
+            :isAnyEditorOpen="isAnyEditorOpen"
+            :newReply="newReply"
+            :depth="post.depth"
+            :renderPosts="renderPosts"
+            :showReplyEditor="showReplyEditor"
+            :likePost="likePostHandler"
+            :deletePost="deletePost"
+            :restorePost="restorePostHandler"
+            :reply="reply"
+            :cancelReply="cancelReply"
+            :store="store"
+            :RichEditor="RichEditor"
+            :sanitizeHTML="sanitizeHTML"
+            :adminDeletePost="adminDeletePostHandler"
+            :updatePost="updatePostHandler"
+            :charLimit="store.charLimit"
+            @update:newReply="val => newReply = val"
+            @startEditing="startEditing"
+            @stopEditing="stopEditing"
+          />
+        </div>
+        <!-- No Posts Message -->
+        <div v-else-if="postsLoaded && renderPosts().length === 0" class="text-center py-4">
+          <div class="max-w-md mx-auto">
+            <div class="text-6xl mb-4">💬</div>
+            <h3 class="text-xl font-semibold text-base-content mb-2">
+              {{ $t('thread.noPostsYet') }}
+            </h3>
+            <p class="text-base-content/70 mb-6">
+              {{ $t('thread.beFirstToPost') }}
+            </p>
+            <button 
+              v-if="canPost"
+              class="btn btn-primary btn-lg"
+              @click="openNewPostModal"
+            >
+              {{ $t('thread.createFirstPost') }}
+            </button>
+            <div v-else class="text-base-content/60">
+              {{ $t('thread.readOnlyThread') }}
+            </div>
+          </div>
+        </div>
+        <!-- New Post Modal -->
+        <NewPostModal
+          :show="showNewPostModal"
+          v-model:content="newReply"
+          :RichEditor="RichEditor"
+          :charLimit="store.charLimit"
+          @cancel="closeNewPostModal"
+          @confirm="() => { reply(null); closeNewPostModal() }"
+        />
+        <!-- Deleted Post Toast -->
+        <ErrorToast 
+          :show="showDeletedPostToast" 
+          :message="$t('thread.postDeleted')" 
+        />
       </div>
-
-      <!-- New Post Modal -->
-      <NewPostModal
-        :show="showNewPostModal"
-        v-model:content="newReply"
-        :RichEditor="RichEditor"
-        :charLimit="store.charLimit"
-        @cancel="closeNewPostModal"
-        @confirm="() => { reply(null); closeNewPostModal() }"
-      />
-
-      <!-- Deleted Post Toast -->
-      <ErrorToast 
-        :show="showDeletedPostToast" 
-        :message="$t('thread.postDeleted')" 
-      />
-
-    </div>
+    </template>
   </div>
 </template>
 

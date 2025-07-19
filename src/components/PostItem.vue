@@ -64,8 +64,8 @@
             <div v-if="editingPostId === post.id">
               <RichEditor v-model="editingContent" :placeholder="$t('thread.writeReply')" :maxHeight="'120px'" :charLimit="store.charLimit" />
               <div class="flex gap-2 mt-2">
-                <button class="btn btn-sm btn-primary" @click="saveEdit(post.id)">{{ $t('thread.save') }}</button>
-                <button class="btn btn-sm btn-outline" @click="cancelEdit">{{ $t('thread.cancel') }}</button>
+                <button class="btn btn-sm btn-primary" @click="() => { saveEdit(post.id); emit('stopEditing'); }">{{ $t('thread.save') }}</button>
+                <button class="btn btn-sm btn-outline" @click="() => { cancelEdit(); emit('stopEditing'); }">{{ $t('thread.cancel') }}</button>
               </div>
             </div>
             <div v-else class="prose prose-sm max-w-none" v-html="sanitizeHTML(post.content)"></div>
@@ -100,7 +100,7 @@
           <button
             v-if="post.author.email === store.currentUser.email"
             class="btn btn-xs btn-outline btn-accent"
-            @click="startEditing(post.id, post.content)"
+            @click="() => { startEditing(post.id, post.content); emit('startEditing', post.id); }"
             :disabled="isAnyEditorOpen && replyingTo !== post.id && editingPostId !== post.id"
           >
             {{ $t('thread.edit') }}
@@ -236,7 +236,7 @@ const props = defineProps({
   updatePost: Function
 })
 
-const emit = defineEmits(['update:newReply'])
+const emit = defineEmits(['update:newReply', 'startEditing', 'stopEditing'])
 
 const isLiked = computed(() =>
   (props.post.likedBy || []).includes(props.store.currentUser.email)

@@ -25,7 +25,8 @@
       "unsubscribe": "Se désabonner",
       "lastPostBy": "Dernier message par",
       "createThreadError": "Échec de la création de la discussion. Veuillez réessayer.",
-      "subscribeError": "Échec de la mise à jour de l'abonnement. Veuillez réessayer."
+      "subscribeError": "Échec de la mise à jour de l'abonnement. Veuillez réessayer.",
+      "deleteThreadError": "Échec de la suppression du fil de discussion. Veuillez réessayer."
     },
     "thread": {
       "reply": "Répondre",
@@ -69,5 +70,10 @@
       "legal": "Mentions légales",
       "terms": "Conditions d'utilisation",
       "privacy": "Confidentialité et témoins"
+    },
+    "notFound": {
+      "title": "404 - Discussion introuvable",
+      "message": "La discussion que vous recherchez n'existe pas ou a été supprimée.",
+      "goHome": "Retour à l'accueil"
     }
   }

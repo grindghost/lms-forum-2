@@ -12,20 +12,26 @@ import { createThread } from '@/services/createThread'
 import { updateThread } from '@/services/updateThread'
 import { deleteThread } from '@/services/deleteThread'
 import { updateSortOrder } from '@/services/updateSortOrder'
-import { getAllPosts } from '@/services/getPosts'
+import { getPosts } from '@/services/getPosts'
 import YellowSpinner from '@/components/YellowSpinner.vue'
 import ErrorToast from '@/components/ErrorToast.vue'
-import { updateThreadSubscribers } from '@/services/toggleThreadSubscription'
+import { toggleThreadSubscription } from '@/services/toggleThreadSubscription'
 
 const { t: $t, locale } = useI18n()
 
 const store = useForumStore()
 const newTitle = ref('')
-const threads = ref([])
 const router = useRouter()
 const isLoading = ref(true)
 const showErrorToast = ref(false)
 const errorMessage = ref('')
+
+// Use store.threads and store.posts as arrays for rendering
+const threads = computed(() => Object.values(store.threads).sort((a, b) => {
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
+  return b.createdAt - a.createdAt
+}))
+const posts = computed(() => store.posts)
 
 // Computed property for formatted dates that reacts to locale changes
 const formatThreadDate = (date) => {
@@ -49,11 +55,11 @@ const dropPosition = ref(null) // 'above' or 'below'
 const previousThreads = ref([])
 
 // Track posts for last poster info
-const posts = ref({})
+// const posts = ref({}) // This line is removed as per the edit hint
 
 // Helper to get last post info for a thread
 function getLastPostInfo(threadId) {
-  const threadPosts = Object.values(posts.value).filter(p => p.threadId === threadId && !p.deleted)
+  const threadPosts = Object.values(store.posts).filter(p => p.threadId === threadId && !p.deleted)
   if (threadPosts.length === 0) return null
   const last = threadPosts.reduce((a, b) => (a.createdAt > b.createdAt ? a : b))
   return {
@@ -63,35 +69,18 @@ function getLastPostInfo(threadId) {
   }
 }
 
-// Subscribe logic
-function isSubscribed(thread) {
-  if (!thread.subscribers) return false
-  return thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
-}
+// Subscribe logic (isSubscribed now handled by backend)
 async function toggleSubscribe(thread) {
-  if (!thread.subscribers) thread.subscribers = []
-  // Check if already subscribed (by email)
-  const isSubscribedNow = thread.subscribers.some(sub => (typeof sub === 'string' ? sub : sub.email) === store.currentUser.email)
-  // Optimistically update
-  const oldSubscribers = [...thread.subscribers]
-  if (isSubscribedNow) {
-    thread.subscribers = thread.subscribers.filter(sub => (typeof sub === 'string' ? sub : sub.email) !== store.currentUser.email)
-  } else {
-    thread.subscribers = [...thread.subscribers, store.currentUser.email]
-  }
-  // Remove empty strings before sending to backend
-  thread.subscribers = thread.subscribers.filter(email => !!email)
   try {
-    const res = await updateThreadSubscribers({
+    const res = await toggleThreadSubscription({
       threadId: thread.id,
-      subscribers: thread.subscribers
-    })
-    thread.subscribers = res.subscribers
+      userEmail: store.currentUser.email
+    });
+    thread.isSubscribed = res.isSubscribed;
   } catch (e) {
-    thread.subscribers = oldSubscribers
-    errorMessage.value = $t('home.subscribeError') || 'Failed to update subscription'
-    showErrorToast.value = true
-    setTimeout(() => (showErrorToast.value = false), 3000)
+    errorMessage.value = $t('home.subscribeError') || 'Failed to update subscription';
+    showErrorToast.value = true;
+    setTimeout(() => (showErrorToast.value = false), 3000);
   }
 }
 
@@ -121,7 +110,7 @@ const createThreadHandler = async () => {
     subscribers: [],
     readOnly: false
   }
-  threads.value.unshift(optimisticThread)
+  store.addThread(optimisticThread)
   const oldTitle = newTitle.value
   newTitle.value = ''
   try {
@@ -130,13 +119,11 @@ const createThreadHandler = async () => {
       author: store.currentUser,
       groupId: store.groupId
     })
-    // Merge real thread data with optimistic one to avoid missing fields
-    const idx = threads.value.findIndex(t => t.id === tempId)
-    if (idx !== -1) {
-      threads.value[idx] = { ...threads.value[idx], ...created }
-    }
+    // Remove the temp thread and add the real thread
+    store.removeThread(tempId)
+    store.addThread({ ...optimisticThread, ...created, id: created.id })
   } catch (e) {
-    threads.value = threads.value.filter(t => t.id !== tempId)
+    store.removeThread(tempId)
     errorMessage.value = $t('home.createThreadError') || 'Failed to create thread'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -156,18 +143,16 @@ const cancelEditThread = () => {
 
 const saveEditThread = async (threadId) => {
   if (!editingThreadTitle.value.trim()) return
-  const idx = threads.value.findIndex(t => t.id === threadId)
-  if (idx === -1) return
-  const oldTitle = threads.value[idx].title
+  const oldThread = { ...store.threads[threadId] }
   // Optimistically update
-  threads.value[idx].title = editingThreadTitle.value.trim()
+  store.updateThread({ id: threadId, title: editingThreadTitle.value.trim() })
   editingThreadId.value = null
   editingThreadTitle.value = ''
   try {
-    await updateThread({ id: threadId, title: threads.value[idx].title })
+    await updateThread({ id: threadId, title: store.threads[threadId].title })
   } catch (e) {
     // Revert
-    threads.value[idx].title = oldTitle
+    store.updateThread(oldThread)
     errorMessage.value = $t('home.editThreadError') || 'Failed to edit thread'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -251,11 +236,11 @@ const handleDrop = async (e, targetThread) => {
       thread.sortOrder = newSortOrder
     })
     // Optimistically update UI
-    threads.value = newThreads
+    store.setThreads(newThreads)
     await updateSortOrder({ updates })
   } catch (error) {
     // Revert UI
-    threads.value = previousThreads.value.map(t => ({ ...t }))
+    store.setThreads(previousThreads.value.map(t => ({ ...t })))
     errorMessage.value = $t('home.sortOrderError') || 'Failed to update sort order'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -291,15 +276,15 @@ const handleDeleteThread = async () => {
   if (!threadToDelete.value) return
   // Optimistically remove thread
   const deletedId = threadToDelete.value.id
-  const previous = threads.value.map(t => ({ ...t }))
-  threads.value = threads.value.filter(t => t.id !== deletedId)
+  const oldThread = { ...store.threads[deletedId] }
+  store.removeThread(deletedId)
   showDeleteConfirm.value = false
   threadToDelete.value = null
   try {
     await deleteThread({ id: deletedId })
   } catch (e) {
     // Revert UI
-    threads.value = previous
+    store.addThread(oldThread)
     errorMessage.value = $t('home.deleteThreadError') || 'Failed to delete thread'
     showErrorToast.value = true
     setTimeout(() => (showErrorToast.value = false), 3000)
@@ -309,25 +294,20 @@ const handleDeleteThread = async () => {
 // FETCH THREADS AND POSTS
 const fetchThreadsAndPosts = async () => {
   if (!store.groupId) return
-  isLoading.value = true
-  const threadsData = await getThreads(store.groupId)
-  threads.value = threadsData.sort((a, b) => {
-    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder
-    return b.createdAt - a.createdAt
-  })
-  // Fetch all posts for last post info
-  const postsData = await getAllPosts()
-  posts.value = postsData.reduce((acc, post) => {
-    acc[post.id] = post
-    return acc
-  }, {})
-  // Set messageCount for each thread
-  threads.value.forEach(thread => {
-    thread.messageCount = Object.values(posts.value).filter(
-      p => p.threadId === thread.id && !p.deleted
-    ).length;
-  });
-  isLoading.value = false
+  if (!store.threadsLoaded) {
+    isLoading.value = true
+    const threadsData = await getThreads(store.groupId, store.currentUser)
+    store.replaceThreads(threadsData)
+    // Fetch posts for each thread for last post info
+    for (const thread of threadsData) {
+      const postsData = await getPosts(thread.id)
+      store.setPosts(postsData)
+      store.updateThread({ id: thread.id, messageCount: postsData.filter(p => !p.deleted).length })
+    }
+    isLoading.value = false
+  } else {
+    isLoading.value = false // Data is already present, skip spinner
+  }
 }
 
 // INIT FETCH
@@ -344,7 +324,9 @@ watch(
 <template>
   <div class="bg-[#f4f6f8] font-sans pt-24 h-full flex-1 pb-16">
     <ErrorToast :show="showErrorToast" :message="errorMessage" />
-    <YellowSpinner v-if="isLoading" />
+    <div v-if="isLoading" class="flex items-center justify-center min-h-[40vh]">
+      <YellowSpinner />
+    </div>
     <main v-else class="max-w-3xl mx-auto px-4 py-8 space-y-6">
       <!-- Create Thread Section -->
       <div v-if="store.isAdmin()" class="flex flex-col sm:flex-row gap-3 sm:items-center">
@@ -394,7 +376,7 @@ watch(
           @click="goToThread(thread.id)"
         >
           <!-- Subscribe Star -->
-          <div v-if="isSubscribed(thread)" class="absolute top-2 right-2 z-10">
+          <div v-if="thread.isSubscribed" class="absolute top-2 right-2 z-10">
             <div class="w-5 h-5 sm:w-6 sm:h-6 bg-yellow-100 rounded-full flex items-center justify-center shadow-sm">
               <span class="text-yellow-600 text-xs sm:text-sm">⭐</span>
             </div>
@@ -473,13 +455,13 @@ watch(
               <div class="flex items-center gap-2" @click.stop>
                 <input
                   type="checkbox"
-                  :checked="isSubscribed(thread)"
+                  :checked="thread.isSubscribed"
                   @change="toggleSubscribe(thread)"
                   class="checkbox checkbox-xs"
                   :id="'subscribe-' + thread.id"
                 />
                 <label :for="'subscribe-' + thread.id" class="text-xs cursor-pointer">
-                  {{ isSubscribed(thread) ? $t('home.unsubscribe') : $t('home.subscribe') }}
+                  {{ thread.isSubscribed ? $t('home.unsubscribe') : $t('home.subscribe') }}
                 </label>
               </div>
 

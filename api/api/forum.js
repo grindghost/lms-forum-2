@@ -1,7 +1,7 @@
 import { getFirebaseDB } from '../_firebase.js'
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { encryptText, decryptText, deterministicEncryptText } = require('../utils/encryption.cjs');
+const { encryptText, decryptText, deterministicEncryptText, toFirebaseKey } = require('../utils/encryption.cjs');
 
 function safeParse(str) {
   try { return JSON.parse(str); } catch { return { name: '', email: '' }; }
@@ -37,13 +37,53 @@ export default async function handler(req, res) {
         case 'get-threads': {
           const groupId = req.query.groupId
           if (!groupId) return res.status(400).json({ error: 'Missing groupId' })
-          const threadsRef = db.ref('threads')
-          const snapshot = await threadsRef.get()
-          const allThreads = snapshot.val() || {}
+          // Accept currentUser as JSON string in query param (for GET)
+          let currentUser = null;
+          try {
+            currentUser = req.query.currentUser ? JSON.parse(req.query.currentUser) : null;
+          } catch { currentUser = null; }
+          let currentUserId = null;
+          if (currentUser && currentUser.email) {
+            currentUserId = toFirebaseKey(deterministicEncryptText(currentUser.email));
+          }
+          // Fetch thread IDs for this forum
+          const forumThreadsSnap = await db.ref(`forums/${groupId}/threadIds`).get();
+          const threadIdsObj = forumThreadsSnap.val() || {};
+          const threadIds = Object.keys(threadIdsObj);
+          // Batch fetch threads
+          const threadsSnapArr = await Promise.all(threadIds.map(id => db.ref(`threads/${id}`).get()));
+          const allThreads = {};
+          threadsSnapArr.forEach((snap, i) => {
+            if (snap.exists()) allThreads[threadIds[i]] = snap.val();
+          });
+          // Collect all unique user IDs (authors + subscribers)
+          const userIdsSet = new Set();
+          Object.values(allThreads).forEach(thread => {
+            if (thread.author) userIdsSet.add(thread.author);
+            if (thread.subscribers) {
+              Object.keys(thread.subscribers).forEach(uid => userIdsSet.add(uid));
+            }
+          });
+          const userIds = Array.from(userIdsSet);
+          // Batch fetch only those user records
+          const userSnaps = await Promise.all(userIds.map(uid => db.ref(`users/${uid}`).get()));
+          const userMap = {};
+          userSnaps.forEach((snap, i) => {
+            if (snap.exists()) userMap[userIds[i]] = snap.val();
+          });
+          // Map authors and subscribers using the fetched user records
           const threads = Object.entries(allThreads)
-            .map(([id, thread]) => ({ id, ...thread }))
-            .filter(thread => thread.group === groupId)
-            .map(thread => ({ ...thread, author: thread.author ? safeParse(decryptText(thread.author)) : thread.author }));
+            .map(([id, thread]) => ({
+              id,
+              ...thread,
+              author: thread.author && userMap[thread.author] ? JSON.parse(decryptText(userMap[thread.author])) : null,
+              subscribers: thread.subscribers
+                ? Object.keys(thread.subscribers)
+                    .map(uid => userMap[uid] ? JSON.parse(decryptText(userMap[uid])) : null)
+                    .filter(Boolean)
+                : [],
+              isSubscribed: currentUserId ? !!(thread.subscribers && thread.subscribers[currentUserId]) : false
+            }));
           return res.status(200).json(threads)
         }
         case 'get-thread': {
@@ -52,7 +92,25 @@ export default async function handler(req, res) {
           const threadSnap = await db.ref(`threads/${threadId}`).get()
           const thread = threadSnap.val()
           if (!thread) return res.status(404).json({ error: 'Thread not found' })
-          return res.status(200).json({ id: threadId, ...thread, author: thread.author ? safeParse(decryptText(thread.author)) : thread.author })
+          // Fetch users for author and subscribers
+          const usersSnap = await db.ref('users').get()
+          const allUsers = usersSnap.val() || {}
+          // Accept currentUser as JSON string in query param (for GET)
+          let currentUser = null;
+          try {
+            currentUser = req.query.currentUser ? JSON.parse(req.query.currentUser) : null;
+          } catch { currentUser = null; }
+          let currentUserId = null;
+          if (currentUser && currentUser.email) {
+            currentUserId = toFirebaseKey(deterministicEncryptText(currentUser.email));
+          }
+          return res.status(200).json({
+            id: threadId,
+            ...thread,
+            author: thread.author && allUsers[thread.author] ? JSON.parse(decryptText(allUsers[thread.author])) : null,
+            subscribers: thread.subscribers ? Object.keys(thread.subscribers).map(uid => allUsers[uid] ? JSON.parse(decryptText(allUsers[uid])) : null).filter(Boolean) : [],
+            isSubscribed: currentUserId ? !!(thread.subscribers && thread.subscribers[currentUserId]) : false
+          })
         }
         default:
           return res.status(400).json({ error: 'Unknown action' })
@@ -60,37 +118,92 @@ export default async function handler(req, res) {
     } else if (req.method === 'POST') {
       switch (action) {
         case 'create-thread': {
-          const { title, author, groupId } = req.body
-          if (!title || !author || !groupId) return res.status(400).json({ error: 'Missing data' })
+          const { title, author, forumId: rawForumId, groupId } = req.body
+          const forumId = rawForumId || groupId
+          if (!title || !author || !forumId) return res.status(400).json({ error: 'Missing data' })
           if (typeof author !== 'object' || !author.name || !author.email) {
             return res.status(400).json({ error: 'Invalid author object' })
           }
+          // Compute user_id and encrypted user
+          const user_id = toFirebaseKey(deterministicEncryptText(author.email))
+          const encryptedUser = encryptText(JSON.stringify(author))
+          // Store user in users/{user_id} only if not already present
+          const userRef = db.ref(`users/${user_id}`)
+          const userSnap = await userRef.get()
+          if (!userSnap.exists()) {
+            await userRef.set(encryptedUser)
+          }
+          // Create thread
           const threadsRef = db.ref('threads')
-          const newThread = await threadsRef.push({
+          const newThreadRef = await threadsRef.push({
             title,
             createdAt: Date.now(),
-            author: encryptText(JSON.stringify(author)),
-            group: groupId,
-            sortOrder: Date.now()
+            author: user_id,
+            forumId,
+            group: forumId, // for backward compatibility
+            sortOrder: Date.now(),
+            subscribers: {},
+            postIds: {}
           })
-          return res.status(200).json({ id: newThread.key })
+          const threadId = newThreadRef.key
+          // Atomic update: add threadId to forums/{forumId}/threadIds/{threadId} = true
+          await db.ref().update({ [`forums/${forumId}/threadIds/${threadId}`]: true })
+          return res.status(200).json({ id: threadId })
         }
         case 'update-thread': {
-          const { id, title, readOnly } = req.body
+          const { id, title, readOnly, forumId: newForumId } = req.body
           if (!id) return res.status(400).json({ error: 'Missing thread id' })
+          // Fetch current thread to check for forumId change
+          const threadSnap = await db.ref(`threads/${id}`).get()
+          const thread = threadSnap.val()
+          if (!thread) return res.status(404).json({ error: 'Thread not found' })
+          const oldForumId = thread.forumId
           const updateData = {}
           if (title !== undefined) updateData.title = title
           if (readOnly !== undefined) updateData.readOnly = readOnly
-          if (Object.keys(updateData).length === 0) {
+          if (newForumId && newForumId !== oldForumId) {
+            updateData.forumId = newForumId
+            updateData.group = newForumId
+          }
+          if (Object.keys(updateData).length === 0 && (!newForumId || newForumId === oldForumId)) {
             return res.status(400).json({ error: 'No fields to update' })
           }
-          await db.ref(`threads/${id}`).update(updateData)
+          // Atomic update for forum move
+          const updates = {}
+          if (newForumId && newForumId !== oldForumId) {
+            updates[`forums/${oldForumId}/threadIds/${id}`] = null
+            updates[`forums/${newForumId}/threadIds/${id}`] = true
+          }
+          await Promise.all([
+            db.ref(`threads/${id}`).update(updateData),
+            Object.keys(updates).length ? db.ref().update(updates) : Promise.resolve()
+          ])
           return res.status(200).json({ success: true })
         }
         case 'delete-thread': {
           const { id } = req.body
           if (!id) return res.status(400).json({ error: 'Missing thread id' })
-          await db.ref(`threads/${id}`).remove()
+          // Fetch thread to get forumId
+          const threadSnap = await db.ref(`threads/${id}`).get()
+          const thread = threadSnap.val()
+          if (!thread) return res.status(404).json({ error: 'Thread not found' })
+          const forumId = thread.forumId
+
+          // --- Begin cascading delete logic ---
+          // Fetch all post IDs for this thread
+          const postIdsSnap = await db.ref(`threads/${id}/postIds`).get()
+          const postIdsObj = postIdsSnap.val() || {}
+          const postIds = Object.keys(postIdsObj)
+          // Prepare updates to delete all posts and the postIds map
+          const updates = {}
+          postIds.forEach(postId => {
+            updates[`posts/${postId}`] = null
+          })
+          updates[`threads/${id}`] = null
+          updates[`forums/${forumId}/threadIds/${id}`] = null
+          // --- End cascading delete logic ---
+
+          await db.ref().update(updates)
           return res.status(200).json({ success: true })
         }
         case 'update-sort-order': {
@@ -100,32 +213,25 @@ export default async function handler(req, res) {
           return res.status(200).json({ success: true })
         }
         case 'toggle-subscription': {
-          console.log('TOGGLE SUBSCRIPTION HIT', req.body);
           const { threadId, userEmail } = req.body
           if (!threadId || !userEmail) return res.status(400).json({ error: 'Missing threadId or userEmail' })
+          const user_id = toFirebaseKey(deterministicEncryptText(userEmail))
           const threadRef = db.ref(`threads/${threadId}/subscribers`)
           const snap = await threadRef.get()
-          let subscribers = snap.val() || []
-          if (!Array.isArray(subscribers)) subscribers = []
-          if (subscribers.includes(userEmail)) {
+          let subscribers = snap.val() || {}
+          if (typeof subscribers !== 'object' || Array.isArray(subscribers)) subscribers = {}
+          let isSubscribed = false;
+          if (subscribers[user_id]) {
             // Unsubscribe
-            subscribers = subscribers.filter(e => e !== userEmail)
+            delete subscribers[user_id]
+            isSubscribed = false;
           } else {
             // Subscribe
-            subscribers.push(userEmail)
+            subscribers[user_id] = true
+            isSubscribed = true;
           }
           await threadRef.set(subscribers)
-          return res.status(200).json({ subscribers })
-        }
-        case 'update-subscribers': {
-          console.log('UPDATE SUBSCRIPTION HIT', req.body);
-          
-          const { threadId, subscribers } = req.body
-          if (!threadId || !Array.isArray(subscribers)) return res.status(400).json({ error: 'Missing threadId or subscribers' })
-
-          // Store all subscribers as plain emails for easier inspection
-          await db.ref(`threads/${threadId}/subscribers`).set(subscribers)
-          return res.status(200).json({ subscribers })
+          return res.status(200).json({ isSubscribed })
         }
         // Add more thread actions here (subscribe, reorder, etc.)
         default:

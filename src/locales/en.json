@@ -25,7 +25,8 @@
       "unsubscribe": "Unsubscribe",
       "lastPostBy": "Last post by",
       "createThreadError": "Failed to create thread. Please try again.",
-      "subscribeError": "Failed to update subscription. Please try again."
+      "subscribeError": "Failed to update subscription. Please try again.",
+      "deleteThreadError": "Failed to delete thread. Please try again."
     },
     "thread": {
       "reply": "Reply",
@@ -69,5 +70,10 @@
       "legal": "Legal",
       "terms": "Terms of Use",
       "privacy": "Privacy & Cookies"
+    },
+    "notFound": {
+      "title": "404 - Thread Not Found",
+      "message": "The thread you are looking for does not exist or has been deleted.",
+      "goHome": "Go to Home"
     }
   }
